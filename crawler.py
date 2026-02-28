@@ -13,6 +13,7 @@ import random
 import logging
 import hashlib
 import os
+from typing import Optional, Set, Dict, Deque, Iterable, List, Tuple
 
 # logging config
 logging.basicConfig(
@@ -87,7 +88,7 @@ IGNORE_EXTENSIONS = (
 
 # Fetch html web page by given link
 
-def fetch(url, max_tries=3):
+def fetch(url: str, max_tries: int = 3) -> str:
     headers = {
         'User-Agent' : random.choice(USER_AGENTS),
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -121,7 +122,7 @@ def fetch(url, max_tries=3):
 
 
 #  extract links from the fetched web page 
-def extract_links(html, base_url):
+def extract_links(html: str, base_url: str) -> Set[str]:
     
     parsed_page = BeautifulSoup(html, 'html.parser')
     
@@ -162,16 +163,16 @@ def extract_links(html, base_url):
 
 # ignore urls with videos , images , pdfs
 
-def skip_url(url):
+def skip_url(url: str) -> bool:
     return url.lower().endswith(IGNORE_EXTENSIONS)
 
 
 # Cache lives outside the function — persists across all calls
-robots_cache: dict[str, RobotFileParser] = {}
+robots_cache: Dict[str, Optional[RobotFileParser]] = {}
 robots_cache_lock = threading.Lock()
 
 # rescpect robotfile
-def is_allowed(url, user_agent='*', fallback=True):
+def is_allowed(url: str, user_agent: str = '*', fallback: bool = True) -> bool:
     parsed_url = urlparse(url)
     host = parsed_url.netloc
     robot_url = f"{parsed_url.scheme}://{host}/robots.txt"
@@ -200,10 +201,10 @@ def is_allowed(url, user_agent='*', fallback=True):
     
 # crawl urls from seed
 
-def crawel(seed_url , maxPage = 5):
+def crawel(seed_url: str, maxPage: int = 5) -> None:
     # setup queue for links and visited set to avoid duplicates
-    url_queue = deque([seed_url])
-    visited =set()
+    url_queue: Deque[str] = deque([seed_url])
+    visited: Set[str] = set()
     
     while url_queue and len(visited) < maxPage: 
         # fetch the page
@@ -241,23 +242,23 @@ def crawel(seed_url , maxPage = 5):
                 
                 
                 
-def threaded_crawel(seed_urls, max_pages=50, max_workers=5, delay_range=(1.5, 3.5)):
+def threaded_crawel(seed_urls: Iterable[str], max_pages: int = 50, max_workers: int = 5, delay_range: Tuple[float, float] = (1.5, 3.5)) -> None:
 
-    mapping_table = {}
+    mapping_table: Dict[str, queue.Queue] = {}
     mapping_table_lock = threading.Lock()
-    visited = set()
+    visited: Set[str] = set()
     visited_lock = threading.Lock()
-    pages_crawled = 0
+    pages_crawled: int = 0
     pages_crawled_lock = threading.Lock()
 
-    active_workers = 0                    # ← track how many workers are alive
+    active_workers: int = 0                    # ← track how many workers are alive
     active_workers_lock = threading.Lock()
     all_done = threading.Event()          # ← signals when all workers finished
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {}
 
-        def ensure_worker(host, fifo_queue):
+        def ensure_worker(host: str, fifo_queue: queue.Queue) -> None:
             nonlocal active_workers
             if host not in futures:
                 with active_workers_lock:
@@ -265,7 +266,7 @@ def threaded_crawel(seed_urls, max_pages=50, max_workers=5, delay_range=(1.5, 3.
                 futures[host] = executor.submit(worker, host, fifo_queue)
                 logging.info(f"[Executor] New worker spawned for: {host}")
 
-        def queue_router(url):
+        def queue_router(url: str) -> Optional[queue.Queue]:
             host = urlparse(url).netloc
             if not host:
                 return None
@@ -279,7 +280,7 @@ def threaded_crawel(seed_urls, max_pages=50, max_workers=5, delay_range=(1.5, 3.
                     logging.info(f"[Queue Router] New queue → host: {host}")
                 return mapping_table[host]
 
-        def worker(host, fifo_queue: queue.Queue):
+        def worker(host: str, fifo_queue: queue.Queue) -> None:
             nonlocal pages_crawled, active_workers
             try:
                 while True:
@@ -327,7 +328,7 @@ def threaded_crawel(seed_urls, max_pages=50, max_workers=5, delay_range=(1.5, 3.
                     active_workers -= 1
                     logging.info(f"[Worker] {host} done. Active workers: {active_workers}")
                     if active_workers == 0:
-                        all_done.set()    # ✓ last worker signals completion
+                        all_done.set()    #  last worker signals completion
 
         # Seed
         for seed in seed_urls:
@@ -346,7 +347,7 @@ def threaded_crawel(seed_urls, max_pages=50, max_workers=5, delay_range=(1.5, 3.
             writer.writerow([url])
 
 # save pages to disk
-def save_page(html, url, folder="pages"):
+def save_page(html: str, url: str, folder: str = "pages") -> None:
     os.makedirs(folder, exist_ok=True)
     file_id = hashlib.md5(url.encode()).hexdigest()
     filepath = os.path.join(folder, f"{file_id}.html")
@@ -354,7 +355,7 @@ def save_page(html, url, folder="pages"):
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(html)
 
-seed_urls = [
+seed_urls: List[str] = [
     "https://www.wikipedia.org/",
     "https://curlie.org/",
     "https://news.google.com/",
