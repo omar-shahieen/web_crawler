@@ -11,8 +11,7 @@ import queue # thread safe queue
 import time
 import random
 import logging
-import hashlib
-import os
+
 from typing import Optional, Set, Dict, Deque, Iterable, List, Tuple
 
 # logging config
@@ -128,7 +127,6 @@ def extract_links(html: str, base_url: str) -> Set[str]:
     
     parsed_base = urlparse(base_url)
     base_domain =  parsed_base.netloc
-    sub_base_domain = base_domain.split(".")[-2:]
     
     links = set() 
     
@@ -302,6 +300,7 @@ def threaded_crawel(seed_urls: Iterable[str], max_pages: int = 50, max_workers: 
                         pages_crawled += 1
 
                     logging.info(f"[{host}] Crawling ({pages_crawled}/{max_pages}): {url}")
+                    print(f"[{host}] Crawling ({pages_crawled}/{max_pages}): {url}")
 
                     html = fetch(url)
                     time.sleep(random.uniform(*delay_range))
@@ -337,6 +336,7 @@ def threaded_crawel(seed_urls: Iterable[str], max_pages: int = 50, max_workers: 
                 q.put(seed)
 
         # ── Block here until every worker (including late spawns) is done ────
+        print("crawling.....")
         all_done.wait()
         logging.info(f"Crawl complete. Total pages crawled: {pages_crawled}")
 
@@ -347,24 +347,45 @@ def threaded_crawel(seed_urls: Iterable[str], max_pages: int = 50, max_workers: 
             writer.writerow([url])
 
 # save pages to disk
-def save_page(html: str, url: str, folder: str = "pages") -> None:
-    os.makedirs(folder, exist_ok=True)
-    file_id = hashlib.md5(url.encode()).hexdigest()
-    filepath = os.path.join(folder, f"{file_id}.html")
+# def save_page(html: str, url: str, folder: str = "pages") -> None:
+#     os.makedirs(folder, exist_ok=True)
+#     file_id = hashlib.md5(url.encode()).hexdigest()
+#     filepath = os.path.join(folder, f"{file_id}.html")
 
-    with open(filepath, "w", encoding="utf-8") as f:
-        f.write(html)
+#     with open(filepath, "w", encoding="utf-8") as f:
+#         f.write(html)
 
-seed_urls: List[str] = [
-    "https://www.wikipedia.org/",
-    "https://curlie.org/",
-    "https://news.google.com/",
-    "https://www.reuters.com/",
-    "https://www.reddit.com/",
-    "https://news.ycombinator.com/",
-    "https://www.bbc.com/news",
-    "https://www.npr.org/",
-    "https://www.nytimes.com/",
-    "https://www.github.com/trending"
-] 
-threaded_crawel(seed_urls,max_pages=100 , max_workers=10,delay_range=(0.1,0.2))
+from indexer import store_page, build_postings
+
+def save_page(html: str, url: str) -> None:
+    try:
+        page = store_page(url, html)          # persist to MongoDB
+        
+        if not page :
+            return None
+        
+        build_postings(                        # update in-memory index live
+            page._id,
+            page.title,
+            page.content
+        )
+        logging.info(f"[save_page] saved : {url} to mongodb")
+    except Exception as e:
+        logging.error(f"[save_page] Failed for {url}: {e}")
+        
+    
+        
+if __name__ == '__main__':
+    seed_urls: List[str] = [
+        "https://www.wikipedia.org/",
+        "https://curlie.org/",
+        "https://news.google.com/",
+        "https://www.reuters.com/",
+        "https://www.reddit.com/",
+        "https://news.ycombinator.com/",
+        "https://www.bbc.com/news",
+        "https://www.npr.org/",
+        "https://www.nytimes.com/",
+        "https://www.github.com/trending"
+    ] 
+    threaded_crawel(seed_urls,max_pages=100 , max_workers=10,delay_range=(0.1,0.2))
