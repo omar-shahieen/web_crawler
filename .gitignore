@@ -1,0 +1,5 @@
+.venv
+pages
+crawled_urls.csv
+crawler.log
+__pycache__/
