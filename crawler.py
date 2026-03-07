@@ -131,7 +131,9 @@ def extract_links(html: str, base_url: str) -> Set[str]:
     links = set() 
     
     for link in parsed_page.find_all('a',href=True) : 
-        href = link.get('href')
+        href = str(link.get('href', ''))
+        if not href:
+            continue
         
         absolute = urljoin(base_url , href)
         
@@ -360,15 +362,16 @@ from indexer import store_page, build_postings
 def save_page(html: str, url: str) -> None:
     try:
         out_links = sorted(extract_links(html, url))
-        page = store_page(url, html, out_links=out_links)          # persist to MongoDB
+        page = store_page(url, html, out_links=out_links)  # persist to MongoDB
         
-        if not page :
-            return None
+        if not page:
+            return
         
-        build_postings(                        # update in-memory index live
+        # update in-memory index live
+        build_postings(
             page._id,
             page.title,
-            page.content
+            page.content or ""
         )
         logging.info(f"[save_page] saved : {url} to mongodb")
     except Exception as e:

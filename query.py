@@ -82,7 +82,9 @@ def search_query(query: str, top_k: int = 10) -> List[Tuple[dict, float]]:
     candidate_docs: Set[ObjectId] = set()
     for term in weighted_terms:
         for posting in get_term_postings(term):
-            candidate_docs.add(posting.get("doc_id"))
+            doc_id = posting.get("doc_id")
+            if isinstance(doc_id, ObjectId):
+                candidate_docs.add(doc_id)
 
     if not candidate_docs:
         return []

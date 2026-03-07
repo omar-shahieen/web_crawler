@@ -1,25 +1,28 @@
-from pymongo import MongoClient
-from pymongo.collection import Collection
-from bson import ObjectId
 from datetime import datetime, timezone
-from pymongo.errors import ConnectionFailure
 import re
 from typing import Any, Dict, List, Optional, Union
+
+from bson import ObjectId
+from pymongo import MongoClient
+from pymongo.collection import Collection
+from pymongo.errors import ConnectionFailure
 
 
 # database conntection
 # Local connection
 client: MongoClient = MongoClient("mongodb://localhost:27017/")
 db: Any = client["search_engine"]
-Pages: Collection = db['pages']
-Indeverted_index: Collection = db['inverted_index']
+Pages: Collection = db["pages"]
+Indeverted_index: Collection = db["inverted_index"]
+
 try:
     client.admin.command("ping")
-    print("✅ Connected to MongoDB successfully!")
+    print("Connected to MongoDB successfully!")
 except ConnectionFailure as e:
-    print(f"❌ Failed to connect to MongoDB: {e}")
+    print(f"Failed to connect to MongoDB: {e}")
 
-# database models 
+
+# database models
 class Page:
     def __init__(
         self,
@@ -45,7 +48,7 @@ class Page:
     @url.setter
     def url(self, value):
         # Regex to check for a valid URL format
-        url_pattern = re.compile(r'^https?://[^\s/$.?#].[^\s]*$', re.IGNORECASE)
+        url_pattern = re.compile(r"^https?://[^\s/$.?#].[^\s]*$", re.IGNORECASE)
         if not value or not isinstance(value, str) or not url_pattern.match(value):
             raise ValueError(f"Invalid URL format: {value}")
         self._url = value
@@ -74,7 +77,7 @@ class Page:
             "content_hash": self.content_hash,
             "out_links": self.out_links,
         }
-        
+
     def __repr__(self) -> str:
         return (
             f"Page(id={self._id}, "
@@ -82,10 +85,11 @@ class Page:
             f"title='{self.title}', "
             f"word_count={len(self.content.split()) if self.content else 0})"
         )
+
     def __str__(self) -> str:
         return f"[Page] {self.title} ({self.url})"
-    
-    
+
+
 class Posting:
     def __init__(
         self, doc_id: Union[ObjectId, str], tf: int = 1, positions: Optional[List[int]] = None
@@ -100,7 +104,7 @@ class Posting:
         if not isinstance(self.doc_id, ObjectId):
             try:
                 self.doc_id = ObjectId(self.doc_id)
-            except:
+            except Exception:
                 raise TypeError("doc_id must be a valid ObjectId or 24-char hex string.")
 
         # Term Frequency must be at least 1
@@ -111,13 +115,13 @@ class Posting:
         if not isinstance(self.positions, list) or not all(isinstance(p, int) for p in self.positions):
             raise TypeError("Positions must be a list of integers.")
 
-    def to_dict(self):
+    def to_dict(self) -> Dict[str, Any]:
         return {
             "doc_id": self.doc_id,
             "tf": self.tf,
             "pos": self.positions,
         }
-        
+
     def __repr__(self):
         return (
             f"Posting(doc_id={self.doc_id}, "
@@ -127,7 +131,8 @@ class Posting:
 
     def __str__(self):
         return f"[Posting] doc={self.doc_id} | tf={self.tf}"
-            
+
+
 class InvertedIndex:
     def __init__(self, term: str, postings: Optional[List[Dict[str, Any]]] = None) -> None:
         self.term: str = term.lower().strip()
@@ -138,7 +143,7 @@ class InvertedIndex:
             "term": self.term,
             "postings": self.postings,
         }
-        
+
     def __repr__(self):
         return (
             f"InvertedIndex(term='{self.term}', "
@@ -147,10 +152,8 @@ class InvertedIndex:
 
     def __str__(self):
         return f"[Term] '{self.term}' -> {len(self.postings)} postings"
-    
-    
-    
-    
+
+
 # --- Unique index ---
 Pages.create_index("url", unique=True)
 Indeverted_index.create_index("term", unique=True)
