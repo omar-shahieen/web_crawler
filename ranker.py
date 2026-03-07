@@ -31,10 +31,14 @@ def compute_relevance_scores(weighted_terms: Dict[str, float], candidate_docs: S
 
         for posting in postings:
             doc_id = posting.get("doc_id")
+            if not isinstance(doc_id, ObjectId):
+                continue
             if doc_id not in scores:
                 continue
 
             tf_raw = posting.get("tf", 0)
+            if not isinstance(tf_raw, (int, float)):
+                continue
             page = Pages.find_one({"_id": doc_id}, {"word_count": 1})
             doc_len = max((page or {}).get("word_count", 1), 1)
             tf = tf_raw / doc_len
