@@ -21,7 +21,7 @@ except ConnectionFailure as e:
 
 # database models 
 class Page:
-    def __init__(self, url: str, title: str, content: Optional[str] , content_hash : Optional[str]):
+    def __init__(self, url: str, title: str, content: str , content_hash :str, description: str):
         # We call the setters indirectly by assigning to self.url, etc.
         self.url = url
         self.title = title
@@ -29,6 +29,7 @@ class Page:
         self._id: ObjectId = ObjectId()
         self.last_crawled: datetime = datetime.now(tz=timezone.utc)
         self.content_hash = content_hash
+        self.description = description
 
     @property
     def url(self):
@@ -63,7 +64,8 @@ class Page:
             "content": self.content,
             "last_crawled": self.last_crawled,
             "word_count": len(words),
-            "content_hash" : self.content_hash
+            "content_hash" : self.content_hash,
+            "description" : self.description
         }
         
     def __repr__(self) -> str:

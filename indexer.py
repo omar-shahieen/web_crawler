@@ -60,7 +60,7 @@ def filter_page(html: str) -> tuple[str, str, str]:
     title = soup.title.string.strip() if soup.title and soup.title.string else "No Title"
     # extract description
     desc_tag = soup.find("meta", attrs={"name": "description"})
-    description = desc_tag["content"] if desc_tag else ""
+    description = desc_tag["content"] if desc_tag else "No description"
 
     #extract meaningful tags only
     content_block =[]
@@ -86,7 +86,7 @@ def is_content_valid(text: str) -> bool :
     
     
 def store_page(url: str, html: str) -> Optional[Page]:
-    content, title, _ = filter_page(html)
+    content, title, description = filter_page(html)
 
     if not is_content_valid(content):
         print(f"Skipped low-quality page: {url}")
@@ -108,14 +108,15 @@ def store_page(url: str, html: str) -> Optional[Page]:
             {"$set": {
                 "title": title,
                 "content": content,
-                "content_hash": new_hash
+                "content_hash": new_hash,
+                "description" :description
             }}
         )
-        return Page(url=url, title=title, content=content, content_hash=new_hash)
+        return Page(url=url, title=title, content=content, content_hash=new_hash , description=description)
 
     else:
         # New page
-        page = Page(url=url, title=title, content=content, content_hash=new_hash)
+        page = Page(url=url, title=title, content=content, content_hash=new_hash, description=description)
         Pages.insert_one(page.to_dict())
         return page
     

@@ -14,6 +14,6 @@ seed_urls: List[str] = [
     "https://www.nytimes.com/",
     "https://www.github.com/trending"
 ] 
-threaded_crawel(seed_urls,max_pages=1000 , max_workers=20,delay_range=(0.1,0.2))
+threaded_crawel(seed_urls,max_pages=100 , max_workers=20,delay_range=(0.1,0.2))
 
 run_indexer()
