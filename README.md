@@ -1,56 +1,157 @@
-# Webcrawler
+# Web Crawler + Search Engine
 
-Brief lightweight web crawler for single-host and multi-host threaded crawling.
+This project crawls web pages, builds an inverted index in MongoDB, and supports ranked search.
 
-**Requirements:**
+Implemented modules and features:
 
-- Python 3.8 or newer
-- pip
-- External Python packages: `requests`, `beautifulsoup4`
+- `Query Processor` with text preprocessing and stem-aware retrieval.
+- `Phrase Searching` with strict word-order matching.
+- `Ranker` that combines relevance and popularity.
 
-Install dependencies (recommended inside a virtual environment):
+## Requirements
+
+- Python 3.8+
+- MongoDB running on `mongodb://localhost:27017/`
+- Python packages used in the project:
+- `requests`
+- `beautifulsoup4`
+- `pymongo`
+- `nltk`
+- `bson` (provided by `pymongo`)
+
+Recommended setup (Windows PowerShell):
 
 ```bash
 python -m venv .venv
-# Windows PowerShell
 .\.venv\Scripts\Activate.ps1
-# then
-pip install requests beautifulsoup4
+pip install requests beautifulsoup4 pymongo nltk
 ```
 
-Alternatively install from pip directly:
+Important: use the virtual environment Python when running commands.
 
 ```bash
-pip install requests beautifulsoup4
+& ".\.venv\Scripts\python.exe" <script>.py ...
 ```
 
-**How to run**
+## Project Modules
 
-Run the crawler script from the project root:
+- `crawler.py`: threaded crawler, robots handling, link extraction, page persistence.
+- `indexer.py`: page cleaning, tokenization, stemming, inverted index build and flush.
+- `query.py`: query processing, stem expansion, phrase search, CLI.
+- `ranker.py`: relevance scoring (TF-IDF), popularity scoring (PageRank), score combination.
+- `db.py`: MongoDB collections and data models.
+
+## Added Features Summary
+
+### 1) Query Processor (Stem-aware retrieval)
+
+Implemented in `query.py`:
+
+- Query terms are preprocessed with the same pipeline used by indexing.
+- Stem-related term expansion is supported.
+- Exact normalized query terms have higher weight (`1.0`).
+- Same-stem expanded variants are included with lower weight (`0.6`).
+
+Example behavior:
+
+- `travel` can match `travel`, `traveler`, `traveling` (with lower degree for variants).
+
+### 2) Phrase Searching
+
+Implemented in `query.py`:
+
+- Phrase mode is available via `--phrase`.
+- Phrase search validates strict term order using positional postings.
+- Extra text-level validation ensures same sentence order in page text.
+- Phrase results are enforced as a subset of normal search results for the same words.
+
+### 3) Ranker
+
+Implemented in `ranker.py` as a separate module.
+
+#### Relevance
+
+- Algorithm: TF-IDF aggregation over query terms.
+- For each term and document:
+- `tf = term_frequency_in_doc / document_word_count`
+- `idf = log(total_docs / df)`
+- Relevance term contribution = `tf * idf * term_weight`
+
+#### Popularity
+
+- Algorithm: PageRank over crawled pages graph.
+- Graph edges are built from `out_links` stored per page.
+- Damping factor: `0.85`
+- Iterations: `20`
+- Popularity scores are normalized to `[0, 1]`.
+
+#### Final score
+
+- Combined score in `ranker.py`:
+- `final = 0.8 * relevance_norm + 0.2 * popularity`
+
+## Data Changes for Popularity
+
+To support PageRank, the crawler/indexer persistence was extended:
+
+- `crawler.py`: extracts page `out_links`.
+- `indexer.py`: `store_page(..., out_links=...)` stores links.
+- `db.py`: `Page` model includes `out_links` in stored documents.
+
+## How To Run
+
+### Crawl + Index
 
 ```bash
-python crawler.py
+& ".\.venv\Scripts\python.exe" main.py
 ```
 
-This will start the default threaded crawl (see bottom of `crawler.py`).
+Or run crawler/indexer manually from Python snippets as needed.
 
-Outputs produced:
+### Search
 
-- `crawled_urls.csv` — CSV file with one column `URL` containing visited URLs.
-- `pages/` — directory containing fetched HTML pages (MD5 of URL as filename).
-- `crawler.log` — logging output for crawl events and warnings.
+Normal search:
 
-**Brief explanation**
+```bash
+& ".\.venv\Scripts\python.exe" query.py "economy market inflation" --top 10
+```
 
-- `fetch(url)`: downloads a URL and returns the HTML (uses rotating user-agents).
-- `extract_links(html, base_url)`: parses anchor tags and returns same-host absolute links, applying basic filters.
-- `save_page(html, url)`: writes the HTML to `pages/<md5>.html`.
-- `threaded_crawel(seed_urls, ...)`: multi-host threaded crawler that routes URLs to per-host worker queues, respects robots.txt (cached), avoids duplicates, and writes `crawled_urls.csv` at the end.
+Phrase search:
 
-**Notes & tips**
+```bash
+& ".\.venv\Scripts\python.exe" query.py "global travel rebounds" --phrase --top 10
+```
 
-- The crawler respects `robots.txt` by default; if robots fetching fails it falls back to allowing access.
-- Adjust `max_pages`, `max_workers`, and `delay_range` parameters near the bottom of `crawler.py` for different crawl sizes and politeness.
-- Use a short `delay_range` for quick local testing; increase delays for real-world crawls to avoid overloading servers.
+## Validation Commands
 
-If you want, I can also add a `requirements.txt` file or update the script to accept CLI args for seeds and options.
+### A) Stemming validation
+
+```bash
+& ".\.venv\Scripts\python.exe" query.py "travel" --top 10
+& ".\.venv\Scripts\python.exe" query.py "traveling" --top 10
+& ".\.venv\Scripts\python.exe" query.py "traveler" --top 10
+```
+
+Expected: high overlap in returned results.
+
+### B) Phrase subset validation
+
+```bash
+& ".\.venv\Scripts\python.exe" query.py "global travel rebounds" --top 10
+& ".\.venv\Scripts\python.exe" query.py "global travel rebounds" --phrase --top 10
+```
+
+Expected: phrase results are subset (or equal in special cases) of normal results.
+
+### C) Popularity (PageRank) validation
+
+```bash
+& ".\.venv\Scripts\python.exe" -c "from ranker import compute_popularity_scores; from db import Pages; top=sorted(compute_popularity_scores().items(), key=lambda kv: kv[1], reverse=True)[:10]; print('\n'.join([str(i+1)+'. '+(Pages.find_one({'_id':d},{'url':1}) or {}).get('url','?')+' -> '+str(round(s,6)) for i,(d,s) in enumerate(top)]))"
+```
+
+Expected: non-uniform popularity scores after having pages with non-empty `out_links`.
+
+## Notes
+
+- If you see `ModuleNotFoundError: No module named 'bson'`, run commands with `.venv` Python.
+- If popularity scores are all equal, crawl more pages so `out_links` graph coverage increases.
