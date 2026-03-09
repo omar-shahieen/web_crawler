@@ -64,7 +64,7 @@ def _filter_page(html: str) -> tuple[str, str, str]:
             tag.decompose()
 
     # Extract title.
-    title = soup.title.string.strip() if soup.title and soup.title.string else "No Title"
+    title = soup.title.string.strip() if soup.title and soup.title.string else ""
 
     # Extract description.
     desc_tag = soup.find("meta", attrs={"name": "description"})
@@ -95,7 +95,7 @@ def _is_content_valid(text: str) -> bool:
 
 
 def store_page(url: str, html: str, out_links: Optional[List[str]] = None) -> Optional[Page]:
-    content, title, _ = _filter_page(html)
+    content, title, description = _filter_page(html)
 
     if not _is_content_valid(content):
         logger.info("Skipped low-quality page: %s", url)
@@ -119,6 +119,7 @@ def store_page(url: str, html: str, out_links: Optional[List[str]] = None) -> Op
                     "content_hash": new_hash,
                     "out_links": out_links if out_links is not None else [],
                     "last_crawled": datetime.now(tz=timezone.utc), 
+                    "description":description
 
                 }
             },
@@ -128,6 +129,7 @@ def store_page(url: str, html: str, out_links: Optional[List[str]] = None) -> Op
             title=title,
             content=content,
             content_hash=new_hash,
+            description= description,
             out_links=out_links if out_links is not None else [],
         )
 
@@ -136,6 +138,7 @@ def store_page(url: str, html: str, out_links: Optional[List[str]] = None) -> Op
         title=title,
         content=content,
         content_hash=new_hash,
+        description= description,
         out_links=out_links if out_links is not None else [],
     )
     Pages.insert_one(page.to_dict())

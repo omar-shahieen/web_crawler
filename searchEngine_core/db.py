@@ -33,6 +33,7 @@ class Page:
         title: str,
         content: Optional[str],
         content_hash: Optional[str],
+        description : Optional[str]="",
         out_links: Optional[List[str]] = None,
     ):
         # We call the setters indirectly by assigning to self.url, etc.
@@ -40,6 +41,7 @@ class Page:
         self.title = title
         self.content = content
         self._id: ObjectId = ObjectId()
+        self.description= description
         self.last_crawled: datetime = datetime.now(tz=timezone.utc)
         self.content_hash = content_hash
         self.out_links = out_links if out_links is not None else []
@@ -79,6 +81,7 @@ class Page:
             "word_count": len(words),
             "content_hash": self.content_hash,
             "out_links": self.out_links,
+            "description" :self.description
         }
 
     def __repr__(self) -> str:
