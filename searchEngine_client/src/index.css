@@ -1,0 +1,58 @@
+/* ===================================================
+   Global Styles — Nexus Search Engine
+   Aesthetic: warm ivory + deep ink, editorial serif
+   =================================================== */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  /* Color palette */
+  --bg:           #f7f4ef;       /* warm ivory */
+  --surface:      #ffffff;
+  --ink:          #1a1a1a;       /* near-black for text */
+  --ink-muted:    #6b6b6b;
+  --accent:       #1a56db;       /* rich blue — links */
+  --accent-hover: #1240a8;
+  --green:        #197a4f;       /* URL color */
+  --highlight-bg: #fff3cd;       /* keyword highlight */
+  --border:       #e2ddd5;
+
+  /* Typography */
+  --font-display: 'Playfair Display', Georgia, serif;
+  --font-body:    'DM Sans', system-ui, sans-serif;
+
+  /* Spacing */
+  --radius:       8px;
+  --transition:   0.18s ease;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.6;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+  color: var(--accent-hover);
+}
+
+/* Scrollbar — subtle */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }

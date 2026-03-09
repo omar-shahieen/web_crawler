@@ -1,0 +1,81 @@
+/* SearchBar.module.css */
+
+.form {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  max-width: 600px;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: 99px;
+  padding: 0 6px 0 18px;
+  gap: 8px;
+  transition: box-shadow var(--transition), border-color var(--transition);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+.form:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 2px 16px rgba(26, 86, 219, 0.15);
+}
+
+.icon {
+  color: var(--ink-muted);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: var(--font-body);
+  font-size: 1rem;
+  font-weight: 400;
+  color: var(--ink);
+  padding: 14px 0;
+  min-width: 0;
+}
+
+/* Remove browser default search clear button */
+.input::-webkit-search-cancel-button { display: none; }
+
+.input::placeholder {
+  color: var(--ink-muted);
+  font-weight: 300;
+}
+
+.button {
+  flex-shrink: 0;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 99px;
+  padding: 9px 22px;
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--transition), transform 0.1s;
+  letter-spacing: 0.01em;
+}
+
+.button:hover  { background: var(--accent-hover); }
+.button:active { transform: scale(0.97); }
+
+/* ── Compact variant (results header) ── */
+.compact {
+  max-width: 560px;
+}
+
+.compact .input {
+  font-size: 0.9375rem;
+  padding: 10px 0;
+}
+
+.compact .button {
+  padding: 7px 18px;
+  font-size: 0.8125rem;
+}

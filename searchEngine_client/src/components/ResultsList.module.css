@@ -1,0 +1,28 @@
+/* ResultsList.module.css */
+
+.list {
+  display: flex;
+  flex-direction: column;
+}
+
+.meta {
+  font-size: 0.8125rem;
+  color: var(--ink-muted);
+  padding: 8px 0 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+/* Empty state */
+.empty {
+  padding: 48px 0 32px;
+  color: var(--ink-muted);
+  font-size: 1rem;
+  line-height: 1.8;
+}
+
+.emptyHint {
+  font-size: 0.875rem;
+  margin-top: 4px;
+  color: var(--ink-muted);
+}
