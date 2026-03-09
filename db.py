@@ -14,12 +14,15 @@ client: MongoClient = MongoClient("mongodb://localhost:27017/")
 db: Any = client["search_engine"]
 Pages: Collection = db["pages"]
 Indeverted_index: Collection = db["inverted_index"]
+Metadata = db["metadata"]
+
 
 try:
     client.admin.command("ping")
     print("Connected to MongoDB successfully!")
 except ConnectionFailure as e:
     print(f"Failed to connect to MongoDB: {e}")
+
 
 
 # database models
@@ -154,6 +157,20 @@ class InvertedIndex:
         return f"[Term] '{self.term}' -> {len(self.postings)} postings"
 
 
+# Metadata 
+def get_last_indexed_timestamp():
+    doc = Metadata.find_one({"_id": "indexer"})
+    return doc["last_run"] if doc else datetime.min  # if never run, return oldest possible date
+
+def update_last_indexed_timestamp():
+    Metadata.update_one(
+        {"_id": "indexer"},
+        {"$set": {"last_run": datetime.utcnow()}},
+        upsert=True
+    )
+
 # --- Unique index ---
 Pages.create_index("url", unique=True)
 Indeverted_index.create_index("term", unique=True)
+Indeverted_index.create_index("postings.doc_id")
+
