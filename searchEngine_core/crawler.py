@@ -8,6 +8,8 @@ import queue
 import random
 import threading
 import time
+import csv
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from typing import Iterable, Set, Tuple
 
@@ -55,6 +57,13 @@ def threaded_crawl(
     visited: Set[str] = set()
     visited_lock = threading.Lock()
 
+    # Detailed per-page crawl info (used to compute precision/recall later)
+    crawled_pages_info: list[dict] = []
+    crawled_info_lock = threading.Lock()
+
+    skip_reasons: dict = {}
+    skip_reasons_lock = threading.Lock()
+
     pages_crawled = 0
     pages_crawled_lock = threading.Lock()
 
@@ -80,6 +89,24 @@ def threaded_crawl(
                 if skip_reason:
                     log(logger, logging.DEBUG, "URL skipped",
                         url=url, host=host, reason=skip_reason)
+                    with skip_reasons_lock:
+                        skip_reasons[skip_reason] = skip_reasons.get(skip_reason, 0) + 1
+                    # record skipped URL for later analysis
+                    with crawled_info_lock:
+                        crawled_pages_info.append({
+                            "url": url,
+                            "predicted_score": combined_scorer(url),
+                            "fetched": False,
+                            "saved": False,
+                            "fetch_ms": None,
+                            "total_ms": None,
+                            "page_bytes": 0,
+                            "links_found": 0,
+                            "new_links": 0,
+                            "skip_reason": skip_reason,
+                            "timestamp": datetime.utcnow().isoformat(),
+                            "label": "",
+                        })
                     fifo_queue.task_done()
                     continue
 
@@ -105,13 +132,30 @@ def threaded_crawl(
                     fetch_fail_tracker.record_fail(host)
                     log(logger, logging.WARNING, "Empty response — page skipped",
                         url=url, host=host, fetch_ms=fetch_ms)
+                    with skip_reasons_lock:
+                        skip_reasons["fetch_failed"] = skip_reasons.get("fetch_failed", 0) + 1
+                    with crawled_info_lock:
+                        crawled_pages_info.append({
+                            "url": url,
+                            "predicted_score": combined_scorer(url),
+                            "fetched": False,
+                            "saved": False,
+                            "fetch_ms": fetch_ms,
+                            "total_ms": None,
+                            "page_bytes": 0,
+                            "links_found": 0,
+                            "new_links": 0,
+                            "skip_reason": "fetch_failed",
+                            "timestamp": datetime.utcnow().isoformat(),
+                            "label": "",
+                        })
                     fifo_queue.task_done()
                     continue
 
                 fetch_fail_tracker.record_success(host)
                 crawl_history.record(url)
                 host_block_tracker.record_success(host)
-                save_page(html, url)
+                saved = save_page(html, url)
 
                 all_links = extract_links(html, url)
                 new_links = 0
@@ -133,6 +177,23 @@ def threaded_crawl(
                     links_found=len(all_links),
                     new_links_queued=new_links,
                 )
+
+                # record per-page detailed info
+                with crawled_info_lock:
+                    crawled_pages_info.append({
+                        "url": url,
+                        "predicted_score": combined_scorer(url),
+                        "fetched": True,
+                        "saved": bool(saved),
+                        "fetch_ms": fetch_ms,
+                        "total_ms": total_ms,
+                        "page_bytes": len(html),
+                        "links_found": len(all_links),
+                        "new_links": new_links,
+                        "skip_reason": "",
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "label": "",
+                    })
 
                 fifo_queue.task_done()
 
@@ -185,6 +246,33 @@ def threaded_crawl(
     )
 
     export_visited_csv(visited, output_csv)
+
+    # Write detailed per-page CSV to support precision/recall calculations.
+    details_path = output_csv[:-4] + "_details.csv" if output_csv.lower().endswith('.csv') else output_csv + ".details.csv"
+    fieldnames = [
+        "url", "predicted_score", "label", "fetched", "saved",
+        "fetch_ms", "total_ms", "page_bytes", "links_found", "new_links",
+        "skip_reason", "timestamp",
+    ]
+    try:
+        with open(details_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            with crawled_info_lock:
+                for row in crawled_pages_info:
+                    # ensure all keys exist
+                    writer.writerow({k: row.get(k, "") for k in fieldnames})
+        log(logger, logging.INFO, "Wrote detailed crawl CSV",
+            path=details_path, total_rows=len(crawled_pages_info))
+    except Exception as exc:
+        log(logger, logging.ERROR, "Failed to write detailed CSV",
+            path=details_path, error=str(exc), exc_info=True)
+
+    # Log aggregated skip reason counts
+    with skip_reasons_lock:
+        for reason, cnt in skip_reasons.items():
+            log(logger, logging.INFO, "Skip reason summary", reason=reason, count=cnt)
+
     return visited
 
 

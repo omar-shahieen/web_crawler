@@ -72,5 +72,5 @@ ROBOTS_MAX_CONSECUTIVE_BLOCKS: int = 5
 MAX_CONSECUTIVE_FETCH_FAILS: int = 3
 
 # ── Output ────────────────────────────────────────────────────────────────────
-LOG_FILE: str = "crawler.log"
+LOG_FILE: str = "crawl_index.log"
 OUTPUT_CSV: str = "crawled_urls.csv"

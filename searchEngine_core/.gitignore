@@ -1,5 +1,7 @@
 .venv
 pages
 crawled_urls.csv
-crawler.log
+crawled_urls_details.csv
+
+crawl_index.log
 __pycache__/

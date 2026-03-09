@@ -13,28 +13,31 @@ from parser import extract_links
 logger = get_logger(__name__)
 
 try:
-    from indexer import store_page, build_postings
+    from indexer  import store_page
     _INDEXER_AVAILABLE = True
 except ImportError:
     _INDEXER_AVAILABLE = False
     log(logger, logging.WARNING, "indexer module not found — pages won't be indexed.")
 
 
-def save_page(html: str, url: str) -> None:
-    """Persist *html* to MongoDB and update the in-memory inverted index."""
+def save_page(html: str, url: str) -> bool:
+    """Persist *html* to MongoDB and update the in-memory inverted index.
+
+    Returns True when the page was stored/indexed, False otherwise.
+    """
     if not _INDEXER_AVAILABLE:
         return
 
     t0 = time.perf_counter()
     try:
-        out_links = sorted(extract_links(html, url))
+        links = extract_links(html, url) or []
+        out_links = sorted(links)
         page = store_page(url, html, out_links=out_links)
         if not page:
             log(logger, logging.WARNING, "store_page returned nothing",
                 url=url)
-            return
+            return False
 
-        build_postings(page._id, page.title, page.content or "")
         duration_ms = round((time.perf_counter() - t0) * 1000)
         log(logger, logging.INFO, "Page saved to storage",
             url=url,
@@ -43,6 +46,7 @@ def save_page(html: str, url: str) -> None:
             page_bytes=len(html),
             duration_ms=duration_ms,
         )
+        return True
 
     except Exception as exc:
         duration_ms = round((time.perf_counter() - t0) * 1000)
@@ -51,6 +55,7 @@ def save_page(html: str, url: str) -> None:
             error=str(exc),
             duration_ms=duration_ms,
         )
+        return False
 
 
 def export_visited_csv(visited: Set[str], filepath: str) -> None:

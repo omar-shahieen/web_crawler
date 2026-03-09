@@ -36,7 +36,7 @@ class RobotsCache:
 
         allowed = rp.can_fetch(user_agent, url)
         if not allowed:
-            log(logger, logging.WARNING, "URL disallowed by robots.txt",
+            log(logger, logging.WARNING, f"URL {robot_url} disallowed by robots.txt",
                 url=url, host=host, user_agent=user_agent)
         else:
             log(logger, logging.DEBUG, "URL allowed by robots.txt",

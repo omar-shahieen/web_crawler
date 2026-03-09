@@ -60,6 +60,12 @@ def fetch(url: str, max_tries: int = MAX_FETCH_RETRIES) -> str:
                         duration_ms=duration_ms,
                     )
                     break
+            elif response.status_code == 429:  # Too Many Requests
+                wait = 2 ** attempt  # 1s, 2s, 4s, 8s, 16s...
+                retry_after = response.headers.get("Retry-After")
+                wait = int(retry_after) if retry_after else wait
+                print(f"Rate limited. Waiting {wait}s...")
+                time.sleep(wait)
             else:
                 log(logger, logging.WARNING, "Non-200 response",
                     url=url,
@@ -71,7 +77,7 @@ def fetch(url: str, max_tries: int = MAX_FETCH_RETRIES) -> str:
 
         except RequestException as e:
             duration_ms = round((time.perf_counter() - t0) * 1000)
-            backoff = RETRY_BASE_DELAY + attempt * 1.0
+            backoff = RETRY_BASE_DELAY + 2 ** attempt
             log(logger, logging.WARNING, "Fetch failed — retrying",
                 url=url,
                 attempt=attempt + 1,
