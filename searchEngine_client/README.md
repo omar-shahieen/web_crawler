@@ -91,7 +91,18 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173
+`npm run dev` starts both the backend API and the frontend dev server.
+
+- Backend: `http://127.0.0.1:3001`
+- Frontend: `http://127.0.0.1:5173`
+
+Open http://127.0.0.1:5173
+
+If you want to run only the frontend dev server, use:
+
+```bash
+npm run dev:client
+```
 
 ## Backend API
 
@@ -113,6 +124,6 @@ Change the target to match your backend port.
 
 ## Connecting a Real Backend
 
-1. Start your server on port 3001 (or change `vite.config.js`)
+1. Start your server on port 3001, or use the bundled `npm run dev` flow
 2. Implement `GET /api/health` for quick health checks
 3. Implement `GET /api/search?q=<query>` returning the JSON array above
