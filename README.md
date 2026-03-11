@@ -15,7 +15,7 @@ This monorepo contains:
 - **PageRank** popularity scoring combined with TF-IDF relevance (`0.8 relevance + 0.2 popularity`)
 - **Boolean search** — AND / OR / NOT operators, up to 2 operators per query with operator precedence
 - **Phrase search** — strict word-order matching using positional postings
-- **Three-level memory cache** — result cache → term postings cache → page cache (40× speedup on cache hits)
+- **Two-level memory cache** — result cache → term postings cache (fast repeated-query lookups)
 - **REST API** — `GET /api/health`, `GET /api/search?q=<query>&top=<n>`
 
 ### Frontend

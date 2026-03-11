@@ -1,4 +1,3 @@
-import argparse
 import re
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -15,7 +14,6 @@ porter_stemmer = PorterStemmer()
 
 _SEARCH_CACHE: Dict[str, List[Tuple[dict, float]]] = {}
 _TERM_POSTINGS_CACHE: Dict[str, List[dict]] = {}
-_PAGES_CACHE: Dict[ObjectId, dict] = {}
 
 _CACHE_STATS = {
     "hits": 0,
@@ -24,14 +22,12 @@ _CACHE_STATS = {
 }
 
 MAX_CACHE_SIZE = 500
-CACHE_TTL = 3600
 
 
 def clear_cache() -> None:
-    global _SEARCH_CACHE, _TERM_POSTINGS_CACHE, _PAGES_CACHE, _CACHE_STATS
     _SEARCH_CACHE.clear()
     _TERM_POSTINGS_CACHE.clear()
-    _PAGES_CACHE.clear()
+    global _CACHE_STATS
     _CACHE_STATS = {"hits": 0, "misses": 0, "evictions": 0}
     print("✓ All caches cleared")
 
@@ -46,7 +42,6 @@ def get_cache_stats() -> Dict:
         "hit_rate": f"{hit_rate:.1f}%",
         "search_cache_size": len(_SEARCH_CACHE),
         "postings_cache_size": len(_TERM_POSTINGS_CACHE),
-        "pages_cache_size": len(_PAGES_CACHE),
     }
 
 
@@ -79,15 +74,6 @@ def _cache_term_postings(term: str, postings: List[dict]) -> None:
         _CACHE_STATS["evictions"] += 1
 
     _TERM_POSTINGS_CACHE[term] = postings
-
-
-def _cache_page(doc_id: ObjectId, page: dict) -> None:
-    if len(_PAGES_CACHE) >= MAX_CACHE_SIZE:
-        oldest_key = next(iter(_PAGES_CACHE))
-        del _PAGES_CACHE[oldest_key]
-        _CACHE_STATS["evictions"] += 1
-
-    _PAGES_CACHE[doc_id] = page
 
 
 def make_snippet(text: str, query_terms: List[str], max_len: int = 180) -> str:
@@ -183,7 +169,6 @@ def search_query(query: str, top_k: int = 10) -> List[Tuple[dict, float]]:
                 page = pages.get(doc_id)
                 if page:
                     results.append((page, scores[doc_id]))
-                    _cache_page(doc_id, page)
 
     _cache_search_result(cache_key, results)
     return results
@@ -316,14 +301,6 @@ def _evaluate_boolean_tokens(tokens: List[str]) -> Set[ObjectId]:
     return stack[0]
 
 
-def get_documents_for_phrase(phrase: str) -> Set[ObjectId]:
-    if not phrase:
-        return set()
-
-    results = phrase_search(phrase, top_k=1000)
-    return {page.get("_id") for page, _ in results if page.get("_id")}
-
-
 def get_documents_for_query(query_text: str) -> Set[ObjectId]:
     if not query_text:
         return set()
@@ -375,51 +352,6 @@ def search_with_operators(query: str, top_k: int = 10) -> List[Tuple[dict, float
                 page = pages.get(doc_id)
                 if page:
                     results.append((page, scores[doc_id]))
-                    _cache_page(doc_id, page)
 
     _cache_search_result(cache_key, results)
     return results
-
-
-def print_results(results: List[Tuple[dict, float]], query_text: str) -> None:
-    query_terms = preprocess(query_text)
-
-    if not results:
-        print("No results found.")
-        return
-
-    for index, (page, score) in enumerate(results, start=1):
-        title = page.get("title", "No Title")
-        url = page.get("url", "")
-        content = page.get("content", "")
-        snippet = make_snippet(content, query_terms)
-
-        print(f"{index}. {title}")
-        print(f"   URL: {url}")
-        print(f"   Score: {score:.6f}")
-        print(f"   Snippet: {snippet}")
-        print()
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Search over MongoDB index with AND/OR/NOT support")
-    parser.add_argument("query", help="Search query text (supports AND/OR/NOT operators, max 2 per query)")
-    parser.add_argument("--phrase", action="store_true", help="Enable exact phrase search")
-    parser.add_argument("--top", type=int, default=10, help="Number of results to show")
-    args = parser.parse_args()
-
-    if parse_query_with_operators(args.query):
-        results = search_with_operators(args.query, top_k=args.top)
-    else:
-        quoted_phrase = extract_quoted_phrase(args.query)
-        if args.phrase or quoted_phrase:
-            phrase_text = quoted_phrase if quoted_phrase else args.query
-            results = phrase_search(phrase_text, top_k=args.top)
-        else:
-            results = search_query(args.query, top_k=args.top)
-
-    print_results(results, args.query)
-
-
-if __name__ == "__main__":
-    main()

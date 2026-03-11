@@ -149,10 +149,9 @@ Examples:
 
 Implemented in `services/search_service.py`:
 
-**Three-Level Cache Strategy:**
+**Two-Level Cache Strategy:**
 1. **Search Result Cache** (fastest): Stores complete query results
 2. **Term Postings Cache**: Stores inverted index postings
-3. **Pages Cache**: Stores document data
 
 **Performance:**
 - Cache hit: ~1-5 ms (40x faster than database)
@@ -187,8 +186,6 @@ Check Search Result Cache → HIT? Return (1-5ms)
 Check Term Postings Cache → HIT? Use it
     ↓ MISS
 Fetch from Database → Cache it
-    ↓
-Retrieve Pages (using Page Cache)
     ↓
 Rank Results
     ↓
