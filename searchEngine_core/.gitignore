@@ -1,7 +1,15 @@
-.venv
-pages
-crawled_urls.csv
-crawled_urls_details.csv
+# Virtual environment
+.venv/
 
-crawl_index.log
+# Crawl output
+pages/
+*.csv
+
+# Logs
+*.log
+
+# Python cache
 __pycache__/
+*.pyc
+*.pyo
+

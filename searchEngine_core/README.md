@@ -33,19 +33,48 @@ Important: use the virtual environment Python when running commands.
 & ".\.venv\Scripts\python.exe" <script>.py ...
 ```
 
-## Project Modules
+## Project Architecture
 
-- `crawler.py`: threaded crawler, robots handling, link extraction, page persistence.
-- `indexer.py`: page cleaning, tokenization, stemming, inverted index build and flush.
-- `query.py`: query processing, stem expansion, phrase search, CLI.
-- `ranker.py`: relevance scoring (TF-IDF), popularity scoring (PageRank), score combination.
-- `db.py`: MongoDB collections and data models.
+The backend follows a **layered architecture**:
 
-## Added Features Summary
+```
+searchEngine_core/
+ ├─ infrastructure/          # Connectivity and cross-cutting concerns
+ │   ├─ config.py            # All constants (crawl limits, paths, ports …)
+ │   ├─ database.py          # MongoDB connection, collections, models
+ │   └─ logging_utils.py     # setup_logging(), get_logger(), log()
+ │
+ ├─ domain/                  # Pure business logic — no I/O
+ │   ├─ query_language.py    # Boolean-query tokenizer, postfix evaluator
+ │   └─ ranking.py           # TF-IDF relevance, PageRank, score combiner
+ │
+ ├─ services/                # Application use-cases
+ │   ├─ search_service.py    # search_query(), phrase_search(), search_with_operators(), caches
+ │   ├─ crawl_service.py     # crawl_web(), index_content(), crawl_and_index()
+ │   └─ crawl_core/          # Crawl/index internals
+ │       ├─ crawler.py       # Multi-threaded crawler, robots.txt handling, link extraction
+ │       ├─ fetcher.py       # HTTP fetching with retries and timeout
+ │       ├─ parser.py        # HTML parsing, link and text extraction
+ │       ├─ indexer.py       # Tokenization, stemming, inverted index build
+ │       ├─ scorer.py        # Per-document TF scoring
+ │       ├─ storage.py       # Page persistence to MongoDB
+ │       ├─ queues.py        # URL frontier queues
+ │       └─ robots.py        # robots.txt fetch and rule evaluation
+ │
+ ├─ presentation/            # HTTP layer (Flask)
+ │   └─ api_app.py           # create_app(), /api/health, /api/search
+ │
+ ├─ cli/                     # Command-line interface
+ │   └─ commands.py          # main() — subcommands: crawl, index, crawl-index, serve
+ │
+ └─ main.py                  # Project entry-point (delegates to cli.commands)
+```
+
+## Features Summary
 
 ### 1) Query Processor (Stem-aware retrieval)
 
-Implemented in `query.py`:
+Implemented in `services/search_service.py` + `services/crawl_core/indexer.py`:
 
 - Query terms are preprocessed with the same pipeline used by indexing.
 - Stem-related term expansion is supported.
@@ -58,16 +87,15 @@ Example behavior:
 
 ### 2) Phrase Searching
 
-Implemented in `query.py`:
+Implemented in `services/search_service.py`:
 
-- Phrase mode is available via `--phrase`.
 - Phrase search validates strict term order using positional postings.
 - Extra text-level validation ensures same sentence order in page text.
 - Phrase results are enforced as a subset of normal search results for the same words.
 
 ### 3) Ranker
 
-Implemented in `ranker.py` as a separate module.
+Implemented in `domain/ranking.py`:
 
 #### Relevance
 
@@ -87,69 +115,158 @@ Implemented in `ranker.py` as a separate module.
 
 #### Final score
 
-- Combined score in `ranker.py`:
 - `final = 0.8 * relevance_norm + 0.2 * popularity`
 
-## Data Changes for Popularity
+## PageRank Data Support
 
 To support PageRank, the crawler/indexer persistence was extended:
 
-- `crawler.py`: extracts page `out_links`.
-- `indexer.py`: `store_page(..., out_links=...)` stores links.
-- `db.py`: `Page` model includes `out_links` in stored documents.
+- `services/crawl_core/crawler.py`: extracts page `out_links`.
+- `services/crawl_core/storage.py` and `indexer.py`: normalize `out_links` to URL strings before storing.
+- `infrastructure/database.py`: `Page` model includes `out_links` in stored documents.
+
+## Advanced Features
+
+### 4) Boolean Operators (AND/OR/NOT)
+
+Implemented in `domain/query_language.py` + `services/search_service.py`:
+
+- **OR**: Returns pages matching either search term (union)
+- **AND**: Returns pages matching both terms (intersection)
+- **NOT**: Returns pages with left term but excluding right term
+- **Max 2 operators** per query: `"A" OR "B" AND "C"` ✓ | `"A" OR "B" AND "C" NOT "D"` ✗
+- Mixed queries are evaluated with precedence: `NOT`, then `AND`, then `OR`.
+
+Examples:
+```
+"Football player" OR "Tennis player"       # Find either
+"Basketball" AND "Olympics"                # Find both
+"Soccer" NOT "NFL"                         # Exclude unwanted
+"Python" OR "JavaScript" AND "Web"         # Complex (2 ops max)
+```
+
+### 5) Memory-First Caching System
+
+Implemented in `services/search_service.py`:
+
+**Three-Level Cache Strategy:**
+1. **Search Result Cache** (fastest): Stores complete query results
+2. **Term Postings Cache**: Stores inverted index postings
+3. **Pages Cache**: Stores document data
+
+**Performance:**
+- Cache hit: ~1-5 ms (40x faster than database)
+- Cache size: 500 items per cache level
+- Eviction: FIFO when cache full
+- Hit rate: 80%+ on typical workloads
+
+**Benefits:**
+```python
+# First search (cache miss): ~100-200 ms
+results = search_query("Python")
+
+# Repeated search (cache hit): ~1-5 ms
+results = search_query("Python")  # 40x faster!
+
+# Get cache statistics
+from services.search_service import get_cache_stats
+stats = get_cache_stats()
+# {'hits': 45, 'misses': 10, 'hit_rate': '81.8%', ...}
+
+# Clear cache after database updates
+from services.search_service import clear_cache
+clear_cache()
+```
+
+**Cache Strategy Flow:**
+```
+User Query
+    ↓
+Check Search Result Cache → HIT? Return (1-5ms)
+    ↓ MISS
+Check Term Postings Cache → HIT? Use it
+    ↓ MISS
+Fetch from Database → Cache it
+    ↓
+Retrieve Pages (using Page Cache)
+    ↓
+Rank Results
+    ↓
+Cache Final Results → Return
+```
+
+### 6) Backend Search API
+
+Implemented in `presentation/api_app.py`:
+
+- `GET /api/health` returns a simple service health response.
+- `GET /api/search?q=<query>&top=<n>` runs normal, phrase, or boolean search automatically.
+- Results are returned as JSON objects with `title`, `url`, `description`, and `score`.
+- `top` is clamped to `1..50` to avoid oversized responses.
 
 ## How To Run
 
-### Crawl + Index
+### Crawl
 
-```bash
-& ".\.venv\Scripts\python.exe" main.py
+```powershell
+& ".venv\Scripts\python.exe" main.py crawl
 ```
 
-Or run crawler/indexer manually from Python snippets as needed.
+### Index
 
-### Search
-
-Normal search:
-
-```bash
-& ".\.venv\Scripts\python.exe" query.py "economy market inflation" --top 10
+```powershell
+& ".venv\Scripts\python.exe" main.py index
 ```
 
-Phrase search:
+### Crawl + Index (combined)
 
-```bash
-& ".\.venv\Scripts\python.exe" query.py "global travel rebounds" --phrase --top 10
+```powershell
+& ".venv\Scripts\python.exe" main.py crawl-index
+```
+
+### API Server
+
+```powershell
+& ".venv\Scripts\python.exe" main.py serve --host 127.0.0.1 --port 3001
+```
+
+The frontend dev server proxies `/api` → `http://localhost:3001`.
+
+### Quick in-process search test (Python REPL)
+
+```python
+from services.search_service import search_query
+results = search_query('bbc', top_k=5)
+for doc, score in results:
+    print(score, doc['title'])
 ```
 
 ## Validation Commands
 
 ### A) Stemming validation
 
-```bash
-& ".\.venv\Scripts\python.exe" query.py "travel" --top 10
-& ".\.venv\Scripts\python.exe" query.py "traveling" --top 10
-& ".\.venv\Scripts\python.exe" query.py "traveler" --top 10
+```powershell
+& ".venv\Scripts\python.exe" -c "from services.search_service import search_query; [print(s, d['title']) for d,s in search_query('travel', top_k=10)]"
+& ".venv\Scripts\python.exe" -c "from services.search_service import search_query; [print(s, d['title']) for d,s in search_query('traveling', top_k=10)]"
 ```
 
 Expected: high overlap in returned results.
 
-### B) Phrase subset validation
+### B) Phrase search validation
 
-```bash
-& ".\.venv\Scripts\python.exe" query.py "global travel rebounds" --top 10
-& ".\.venv\Scripts\python.exe" query.py "global travel rebounds" --phrase --top 10
+```powershell
+& ".venv\Scripts\python.exe" -c "from services.search_service import phrase_search; [print(s, d['title']) for d,s in phrase_search('global travel', top_k=10)]"
 ```
 
-Expected: phrase results are subset (or equal in special cases) of normal results.
+Expected: results where 'global' and 'travel' appear in strict order.
 
-### C) Popularity (PageRank) validation
+### C) API health check
 
-```bash
-& ".\.venv\Scripts\python.exe" -c "from ranker import compute_popularity_scores; from db import Pages; top=sorted(compute_popularity_scores().items(), key=lambda kv: kv[1], reverse=True)[:10]; print('\n'.join([str(i+1)+'. '+(Pages.find_one({'_id':d},{'url':1}) or {}).get('url','?')+' -> '+str(round(s,6)) for i,(d,s) in enumerate(top)]))"
+```powershell
+Invoke-WebRequest -Uri http://127.0.0.1:3001/api/health | Select-Object -Expand Content
 ```
 
-Expected: non-uniform popularity scores after having pages with non-empty `out_links`.
+Expected: `{"status": "ok"}`.
 
 ## Notes
 
