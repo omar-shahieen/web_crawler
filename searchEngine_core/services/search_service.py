@@ -4,7 +4,8 @@ from typing import Dict, List, Optional, Set, Tuple
 from bson import ObjectId
 from nltk.stem import PorterStemmer
 
-from domain.query_language import BOOLEAN_OPERATOR_PRECEDENCE, extract_quoted_phrase, parse_query_with_operators, to_postfix
+from domain.fuzzy_matching import find_fuzzy_matches, max_fuzzy_distance
+from domain.query_language import BOOLEAN_OPERATOR_PRECEDENCE, count_boolean_operators, extract_quoted_phrase, parse_query_with_operators, to_postfix
 from domain.ranking import rank_documents
 from services.crawl_core.indexer import _preprocess as preprocess
 from infrastructure.database import Pages, Indeverted_index
@@ -14,6 +15,10 @@ porter_stemmer = PorterStemmer()
 
 _SEARCH_CACHE: Dict[str, List[Tuple[dict, float]]] = {}
 _TERM_POSTINGS_CACHE: Dict[str, List[dict]] = {}
+_FUZZY_MATCH_CACHE: Dict[str, List[Tuple[str, float]]] = {}
+_TERM_VOCABULARY_CACHE: List[str] = []
+_TERM_VOCABULARY_BY_INITIAL: Dict[str, List[str]] = {}
+_TERM_VOCABULARY_COUNT = -1
 
 _CACHE_STATS = {
     "hits": 0,
@@ -22,13 +27,19 @@ _CACHE_STATS = {
 }
 
 MAX_CACHE_SIZE = 500
+MAX_FUZZY_EXPANSIONS = 3
+MIN_FUZZY_TERM_LENGTH = 3
 
 
 def clear_cache() -> None:
     _SEARCH_CACHE.clear()
     _TERM_POSTINGS_CACHE.clear()
-    global _CACHE_STATS
+    _FUZZY_MATCH_CACHE.clear()
+    _TERM_VOCABULARY_CACHE.clear()
+    _TERM_VOCABULARY_BY_INITIAL.clear()
+    global _CACHE_STATS, _TERM_VOCABULARY_COUNT
     _CACHE_STATS = {"hits": 0, "misses": 0, "evictions": 0}
+    _TERM_VOCABULARY_COUNT = -1
     print("✓ All caches cleared")
 
 
@@ -42,6 +53,8 @@ def get_cache_stats() -> Dict:
         "hit_rate": f"{hit_rate:.1f}%",
         "search_cache_size": len(_SEARCH_CACHE),
         "postings_cache_size": len(_TERM_POSTINGS_CACHE),
+        "fuzzy_cache_size": len(_FUZZY_MATCH_CACHE),
+        "vocabulary_cache_size": len(_TERM_VOCABULARY_CACHE),
     }
 
 
@@ -74,6 +87,76 @@ def _cache_term_postings(term: str, postings: List[dict]) -> None:
         _CACHE_STATS["evictions"] += 1
 
     _TERM_POSTINGS_CACHE[term] = postings
+
+
+def _cache_fuzzy_matches(term: str, matches: List[Tuple[str, float]]) -> None:
+    if len(_FUZZY_MATCH_CACHE) >= MAX_CACHE_SIZE:
+        oldest_key = next(iter(_FUZZY_MATCH_CACHE))
+        del _FUZZY_MATCH_CACHE[oldest_key]
+        _CACHE_STATS["evictions"] += 1
+
+    _FUZZY_MATCH_CACHE[term] = matches
+
+
+def _load_term_vocabulary() -> Tuple[List[str], Dict[str, List[str]]]:
+    global _TERM_VOCABULARY_CACHE, _TERM_VOCABULARY_BY_INITIAL, _TERM_VOCABULARY_COUNT
+
+    term_count = Indeverted_index.count_documents({})
+    if term_count == _TERM_VOCABULARY_COUNT and _TERM_VOCABULARY_CACHE:
+        return _TERM_VOCABULARY_CACHE, _TERM_VOCABULARY_BY_INITIAL
+
+    vocabulary: List[str] = []
+    buckets: Dict[str, List[str]] = {}
+
+    for row in Indeverted_index.find({}, {"term": 1}):
+        term = row.get("term")
+        if not isinstance(term, str):
+            continue
+
+        normalized_term = term.strip().lower()
+        if not normalized_term:
+            continue
+
+        vocabulary.append(normalized_term)
+        buckets.setdefault(normalized_term[0], []).append(normalized_term)
+
+    _TERM_VOCABULARY_CACHE = vocabulary
+    _TERM_VOCABULARY_BY_INITIAL = buckets
+    _TERM_VOCABULARY_COUNT = term_count
+    _FUZZY_MATCH_CACHE.clear()
+    return vocabulary, buckets
+
+
+def get_fuzzy_term_matches(term: str) -> List[Tuple[str, float]]:
+    normalized_term = term.strip().lower()
+    if len(normalized_term) < MIN_FUZZY_TERM_LENGTH:
+        return []
+
+    if normalized_term in _FUZZY_MATCH_CACHE:
+        return _FUZZY_MATCH_CACHE[normalized_term]
+
+    vocabulary, buckets = _load_term_vocabulary()
+    max_distance = max_fuzzy_distance(normalized_term)
+
+    matches = find_fuzzy_matches(
+        normalized_term,
+        buckets.get(normalized_term[0], []),
+        max_distance=max_distance,
+        max_expansions=MAX_FUZZY_EXPANSIONS,
+        min_term_length=MIN_FUZZY_TERM_LENGTH,
+    )
+
+    if not matches and vocabulary:
+        matches = find_fuzzy_matches(
+            normalized_term,
+            vocabulary,
+            max_distance=max_distance,
+            max_expansions=MAX_FUZZY_EXPANSIONS,
+            min_term_length=MIN_FUZZY_TERM_LENGTH,
+        )
+
+    _cache_fuzzy_matches(normalized_term, matches)
+    return matches
 
 
 def make_snippet(text: str, query_terms: List[str], max_len: int = 180) -> str:
@@ -129,6 +212,12 @@ def build_weighted_query_terms(query: str) -> Dict[str, float]:
                 continue
             if term not in weighted_terms and porter_stemmer.stem(term) == stem:
                 weighted_terms[term] = 0.6
+
+        if get_term_postings(stem):
+            continue
+
+        for fuzzy_term, fuzzy_weight in get_fuzzy_term_matches(stem):
+            weighted_terms[fuzzy_term] = max(weighted_terms.get(fuzzy_term, 0.0), fuzzy_weight)
 
     return weighted_terms
 
@@ -315,6 +404,9 @@ def get_documents_for_query(query_text: str) -> Set[ObjectId]:
 
 
 def search_with_operators(query: str, top_k: int = 10) -> List[Tuple[dict, float]]:
+    if count_boolean_operators(query) > 2:
+        raise ValueError("Maximum number of boolean operators per search is 2.")
+
     cache_key = f"operators::{query}::{top_k}"
     cached_results = _get_search_result_from_cache(cache_key)
     if cached_results is not None:

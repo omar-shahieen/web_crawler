@@ -85,6 +85,44 @@ def parse_query_with_operators(query: str) -> Optional[Dict]:
     }
 
 
+def count_boolean_operators(query: str) -> int:
+    tokens = _tokenize_operator_query(query)
+    if not tokens:
+        return 0
+
+    return sum(1 for token in tokens if token in BOOLEAN_OPERATOR_PRECEDENCE)
+
+
+def extract_query_terms(query: str) -> List[str]:
+    quoted_phrases = [match.group(1).strip() for match in re.finditer(r'"([^"]+)"', query) if match.group(1).strip()]
+    query_without_phrases = re.sub(r'"[^"]+"', " ", query)
+    unquoted_words = re.findall(r"[A-Za-z0-9]+", query_without_phrases)
+
+    raw_terms: List[str] = []
+    for phrase in quoted_phrases:
+        raw_terms.append(phrase)
+        raw_terms.extend(re.findall(r"[A-Za-z0-9]+", phrase))
+    raw_terms.extend(unquoted_words)
+
+    terms: List[str] = []
+    seen = set()
+    for term in raw_terms:
+        normalized = term.strip()
+        if not normalized:
+            continue
+        if normalized.upper() in BOOLEAN_OPERATOR_PRECEDENCE:
+            continue
+
+        key = normalized.lower()
+        if key in seen:
+            continue
+
+        seen.add(key)
+        terms.append(normalized)
+
+    return terms
+
+
 def to_postfix(tokens: List[str]) -> List[str]:
     postfix: List[str] = []
     operators: List[str] = []

@@ -12,6 +12,7 @@ This monorepo contains:
 ### Backend
 - **Multi-threaded web crawler** with robots.txt respect and visited-URL deduplication
 - **Inverted index** built with stemming (NLTK), positional postings, and TF-IDF scoring
+- **Fuzzy matching fallback** — typo-tolerant retrieval when a query word is misspelled
 - **PageRank** popularity scoring combined with TF-IDF relevance (`0.8 relevance + 0.2 popularity`)
 - **Boolean search** — AND / OR / NOT operators, up to 2 operators per query with operator precedence
 - **Phrase search** — strict word-order matching using positional postings
@@ -49,22 +50,22 @@ searchEngine_client/src/
 
 ## Quick Start
 
-### 1) Start Backend
+### 1) Start Frontend + Backend Together
+
+```powershell
+Push-Location "searchEngine_client"
+npm install
+npm run dev
+```
+
+Open: `http://127.0.0.1:5173`
+
+### 2) Start Backend Separately (optional)
 
 ```powershell
 Push-Location "searchEngine_core"
 & "../.venv/Scripts/python.exe" main.py serve --host 127.0.0.1 --port 3001
 ```
-
-### 2) Start Frontend
-
-```powershell
-Push-Location "searchEngine_client"
-npm install
-npm run dev -- --host 127.0.0.1 --port 5173
-```
-
-Open: `http://127.0.0.1:5173`
 
 ## Notes
 

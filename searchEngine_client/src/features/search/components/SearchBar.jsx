@@ -74,6 +74,12 @@ function SearchBar({ initialValue = '', compact = false }) {
     writeRecentSearches(next)
   }
 
+  function removeRecentSearch(term) {
+    const next = recentSearches.filter(item => item !== term)
+    setRecentSearches(next)
+    writeRecentSearches(next)
+  }
+
   function navigateToResults(term) {
     const params = new URLSearchParams({ search: term })
     navigate(`/results?${params}`)
@@ -222,7 +228,7 @@ function SearchBar({ initialValue = '', compact = false }) {
       {!compact && showSuggestions && filteredSuggestions.length > 0 && (
         <ul className={styles.suggestionList} role="listbox" aria-label="Recent search suggestions">
           {filteredSuggestions.map(item => (
-            <li key={item}>
+            <li key={item} className={styles.suggestionRow}>
               <button
                 className={styles.suggestionItem}
                 type="button"
@@ -230,6 +236,19 @@ function SearchBar({ initialValue = '', compact = false }) {
               >
                 <span className={styles.suggestionIcon} aria-hidden="true">↻</span>
                 {item}
+              </button>
+
+              <button
+                className={styles.removeSuggestionButton}
+                type="button"
+                aria-label={`Remove ${item} from recent searches`}
+                title="Remove from recent searches"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  removeRecentSearch(item)
+                }}
+              >
+                x
               </button>
             </li>
           ))}
