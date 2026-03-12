@@ -7,7 +7,8 @@ from flask import Flask, jsonify, request
 from domain.query_language import count_boolean_operators, extract_query_terms
 from services.search_service import extract_quoted_phrase, make_snippet, parse_query_with_operators, phrase_search, search_query, search_with_operators
 
-
+from infrastructure.database import QueryLog
+from domain.TrieManager import trie_manager
 DEFAULT_TOP_K = 10
 MAX_TOP_K = 50
 
@@ -47,6 +48,14 @@ def create_app() -> Flask:
     def health() -> tuple[dict, int]:
         return {"status": "ok"}, 200
 
+    @app.get("/api/auto_complete")
+    def auto_complete(): 
+        query_text = request.args.get("q", "", type=str).strip()
+        trie = trie_manager.get()
+        if trie is None:
+            return [] , 200
+        return trie.suggest(query_text) , 200
+        
     @app.get("/api/search")
     def search() -> tuple:
         query_text = request.args.get("q", "", type=str).strip()
@@ -56,6 +65,8 @@ def create_app() -> Flask:
         if count_boolean_operators(query_text) > 2:
             return jsonify({"error": "Maximum number of boolean operators per search is 2."}), 400
 
+        if QueryLog.should_log(query_text):
+            QueryLog.log_query(query_text)
         top_k = request.args.get("top", DEFAULT_TOP_K, type=int)
         top_k = max(1, min(top_k, MAX_TOP_K))
 

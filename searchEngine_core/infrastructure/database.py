@@ -6,13 +6,17 @@ from bson import ObjectId
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.errors import ConnectionFailure
-
+from dataclasses import  dataclass
+from config import MIN_LENGTH_QUERY , MAX_LENGTH_QUERY , BLOCKED_TERMS
+import re
 
 client: MongoClient = MongoClient("mongodb://localhost:27017/")
 db: Any = client["search_engine"]
 Pages: Collection = db["pages"]
 Indeverted_index: Collection = db["inverted_index"]
-Metadata = db["metadata"]
+Metadata:Collection = db["metadata"]
+QueryLogs:Collection = db["query_logs"]
+
 
 
 try:
@@ -20,6 +24,57 @@ try:
     print("Connected to MongoDB successfully!")
 except ConnectionFailure as error:
     print(f"Failed to connect to MongoDB: {error}")
+
+@dataclass
+class QueryLog:
+    query: str
+    count: int
+    
+    
+    count: int = 0  # default value for new logs
+
+    @staticmethod
+    def log_query( query: str):
+        query = query.lower().strip()
+
+        QueryLogs.update_one(
+            {"query": query},
+            {
+                "$inc": {"count": 1},
+                "$set": {"last_seen": datetime.utcnow()}
+            },
+            upsert=True
+        )
+        
+    @staticmethod
+    def load_queries():
+        queries = []
+
+        cursor = QueryLogs.find({}, {"query": 1, "count": 1})
+
+        for doc in cursor:
+            queries.append((doc["query"], doc["count"]))
+
+        return queries
+    
+    @staticmethod
+    def _looks_like_spam(self, q: str) -> bool:
+        if re.search(r"(https?://|www\.)", q):  return True  # URLs
+        if re.search(r"(.)\1{4,}", q):          return True  # "aaaaaaa"
+        if len(set(q.replace(" ", ""))) < 2:    return True  # "zzzzz"
+        return False
+    @staticmethod
+    def should_log(query: str) -> bool:
+        q = query.strip().lower()
+
+        if len(q) < MIN_LENGTH_QUERY:       return False  # "a", "is"
+        if len(q) > MAX_LENGTH_QUERY:       return False  # spam / paste attacks
+        if not re.search(r"[a-z]", q):return False  # "123", "!!!"
+        if q in BLOCKED_TERMS:        return False  # profanity / slurs
+        if QueryLog._looks_like_spam(q):       return False
+
+        return True
+    
 
 
 class Page:
@@ -31,6 +86,7 @@ class Page:
         content_hash: Optional[str],
         description : Optional[str]="",
         out_links: Optional[List[str]] = None,
+
     ):
         self.url = url
         self.title = title
@@ -40,6 +96,7 @@ class Page:
         self.last_crawled: datetime = datetime.now(tz=timezone.utc)
         self.content_hash = content_hash
         self.out_links = out_links if out_links is not None else []
+        
 
     @property
     def url(self):
@@ -75,9 +132,19 @@ class Page:
             "word_count": len(words),
             "content_hash": self.content_hash,
             "out_links": self.out_links,
-            "description" :self.description
-        }
+            "description" :self.description,
+            }
 
+    @staticmethod
+    def load_pages():
+        pages = []
+
+        cursor = Pages.find({}, {"title": 1, "content": 1})
+
+        for doc in cursor:
+            pages.append((doc["title"], doc["content"]))
+
+        return pages
     def __repr__(self) -> str:
         return (
             f"Page(id={self._id}, "
@@ -167,3 +234,4 @@ def update_last_indexed_timestamp():
 Pages.create_index("url", unique=True)
 Indeverted_index.create_index("term", unique=True)
 Indeverted_index.create_index("postings.doc_id")
+QueryLogs.create_index("query", unique=True)

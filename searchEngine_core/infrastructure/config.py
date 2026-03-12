@@ -63,3 +63,32 @@ ROBOTS_MAX_CONSECUTIVE_BLOCKS: int = 5
 MAX_CONSECUTIVE_FETCH_FAILS: int = 3
 LOG_FILE: str = "crawl_index.log"
 OUTPUT_CSV: str = "crawled_urls.csv"
+
+
+
+
+
+MIN_LENGTH_QUERY = 3
+MAX_LENGTH_QUERY = 100
+# Define the blacklist
+BLOCKED_TERMS = {
+    "fuck",
+    "shit",
+    "bitch",
+    "asshole",
+    "damn",
+    "crap",
+    "dick",
+    "bastard",
+    "slut",
+    "piss",
+    "bollocks",
+    "cock",
+    "fag",
+    "nigger",
+    "cunt",
+    "twat",
+    "arse",
+    "bugger",
+    "bloody",
+}

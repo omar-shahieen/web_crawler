@@ -125,13 +125,14 @@ def _normalize_out_links(out_links: Optional[List[str]]) -> List[str]:
 
 def store_page(url: str, html: str, out_links: Optional[List[str]] = None) -> Optional[Page]:
     content, title, description = _filter_page(html)
-    normalized_out_links = _normalize_out_links(out_links)
-
+    
     if not _is_content_valid(content):
         logger.info("Skipped low-quality page: %s", url)
         return None
 
+    normalized_out_links = _normalize_out_links(out_links)
     new_hash = _content_hash(content)
+    
     existing = Pages.find_one({"url": url})
 
     if existing:
@@ -149,8 +150,7 @@ def store_page(url: str, html: str, out_links: Optional[List[str]] = None) -> Op
                     "content_hash": new_hash,
                     "out_links": normalized_out_links,
                     "last_crawled": datetime.now(tz=timezone.utc), 
-                    "description":description
-
+                    "description":description,
                 }
             },
         )
