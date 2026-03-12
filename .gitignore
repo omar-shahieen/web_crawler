@@ -1,0 +1,17 @@
+# Python virtual environment
+.venv/
+
+# Crawl output & data files
+*.csv
+
+# Logs
+*.log
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# OS
+.DS_Store
+Thumbs.db
