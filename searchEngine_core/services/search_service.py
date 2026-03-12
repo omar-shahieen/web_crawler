@@ -1,11 +1,11 @@
-import argparse
 import re
 from typing import Dict, List, Optional, Set, Tuple
 
 from bson import ObjectId
 from nltk.stem import PorterStemmer
 
-from domain.query_language import BOOLEAN_OPERATOR_PRECEDENCE, extract_quoted_phrase, parse_query_with_operators, to_postfix
+from domain.fuzzy_matching import find_fuzzy_matches, max_fuzzy_distance
+from domain.query_language import BOOLEAN_OPERATOR_PRECEDENCE, count_boolean_operators, extract_quoted_phrase, parse_query_with_operators, to_postfix
 from domain.ranking import rank_documents
 from services.crawl_core.indexer import _preprocess as preprocess
 from infrastructure.database import Pages, Indeverted_index
@@ -15,7 +15,10 @@ porter_stemmer = PorterStemmer()
 
 _SEARCH_CACHE: Dict[str, List[Tuple[dict, float]]] = {}
 _TERM_POSTINGS_CACHE: Dict[str, List[dict]] = {}
-_PAGES_CACHE: Dict[ObjectId, dict] = {}
+_FUZZY_MATCH_CACHE: Dict[str, List[Tuple[str, float]]] = {}
+_TERM_VOCABULARY_CACHE: List[str] = []
+_TERM_VOCABULARY_BY_INITIAL: Dict[str, List[str]] = {}
+_TERM_VOCABULARY_COUNT = -1
 
 _CACHE_STATS = {
     "hits": 0,
@@ -24,15 +27,19 @@ _CACHE_STATS = {
 }
 
 MAX_CACHE_SIZE = 500
-CACHE_TTL = 3600
+MAX_FUZZY_EXPANSIONS = 3
+MIN_FUZZY_TERM_LENGTH = 3
 
 
 def clear_cache() -> None:
-    global _SEARCH_CACHE, _TERM_POSTINGS_CACHE, _PAGES_CACHE, _CACHE_STATS
     _SEARCH_CACHE.clear()
     _TERM_POSTINGS_CACHE.clear()
-    _PAGES_CACHE.clear()
+    _FUZZY_MATCH_CACHE.clear()
+    _TERM_VOCABULARY_CACHE.clear()
+    _TERM_VOCABULARY_BY_INITIAL.clear()
+    global _CACHE_STATS, _TERM_VOCABULARY_COUNT
     _CACHE_STATS = {"hits": 0, "misses": 0, "evictions": 0}
+    _TERM_VOCABULARY_COUNT = -1
     print("✓ All caches cleared")
 
 
@@ -46,7 +53,8 @@ def get_cache_stats() -> Dict:
         "hit_rate": f"{hit_rate:.1f}%",
         "search_cache_size": len(_SEARCH_CACHE),
         "postings_cache_size": len(_TERM_POSTINGS_CACHE),
-        "pages_cache_size": len(_PAGES_CACHE),
+        "fuzzy_cache_size": len(_FUZZY_MATCH_CACHE),
+        "vocabulary_cache_size": len(_TERM_VOCABULARY_CACHE),
     }
 
 
@@ -81,13 +89,74 @@ def _cache_term_postings(term: str, postings: List[dict]) -> None:
     _TERM_POSTINGS_CACHE[term] = postings
 
 
-def _cache_page(doc_id: ObjectId, page: dict) -> None:
-    if len(_PAGES_CACHE) >= MAX_CACHE_SIZE:
-        oldest_key = next(iter(_PAGES_CACHE))
-        del _PAGES_CACHE[oldest_key]
+def _cache_fuzzy_matches(term: str, matches: List[Tuple[str, float]]) -> None:
+    if len(_FUZZY_MATCH_CACHE) >= MAX_CACHE_SIZE:
+        oldest_key = next(iter(_FUZZY_MATCH_CACHE))
+        del _FUZZY_MATCH_CACHE[oldest_key]
         _CACHE_STATS["evictions"] += 1
 
-    _PAGES_CACHE[doc_id] = page
+    _FUZZY_MATCH_CACHE[term] = matches
+
+
+def _load_term_vocabulary() -> Tuple[List[str], Dict[str, List[str]]]:
+    global _TERM_VOCABULARY_CACHE, _TERM_VOCABULARY_BY_INITIAL, _TERM_VOCABULARY_COUNT
+
+    term_count = Indeverted_index.count_documents({})
+    if term_count == _TERM_VOCABULARY_COUNT and _TERM_VOCABULARY_CACHE:
+        return _TERM_VOCABULARY_CACHE, _TERM_VOCABULARY_BY_INITIAL
+
+    vocabulary: List[str] = []
+    buckets: Dict[str, List[str]] = {}
+
+    for row in Indeverted_index.find({}, {"term": 1}):
+        term = row.get("term")
+        if not isinstance(term, str):
+            continue
+
+        normalized_term = term.strip().lower()
+        if not normalized_term:
+            continue
+
+        vocabulary.append(normalized_term)
+        buckets.setdefault(normalized_term[0], []).append(normalized_term)
+
+    _TERM_VOCABULARY_CACHE = vocabulary
+    _TERM_VOCABULARY_BY_INITIAL = buckets
+    _TERM_VOCABULARY_COUNT = term_count
+    _FUZZY_MATCH_CACHE.clear()
+    return vocabulary, buckets
+
+
+def get_fuzzy_term_matches(term: str) -> List[Tuple[str, float]]:
+    normalized_term = term.strip().lower()
+    if len(normalized_term) < MIN_FUZZY_TERM_LENGTH:
+        return []
+
+    if normalized_term in _FUZZY_MATCH_CACHE:
+        return _FUZZY_MATCH_CACHE[normalized_term]
+
+    vocabulary, buckets = _load_term_vocabulary()
+    max_distance = max_fuzzy_distance(normalized_term)
+
+    matches = find_fuzzy_matches(
+        normalized_term,
+        buckets.get(normalized_term[0], []),
+        max_distance=max_distance,
+        max_expansions=MAX_FUZZY_EXPANSIONS,
+        min_term_length=MIN_FUZZY_TERM_LENGTH,
+    )
+
+    if not matches and vocabulary:
+        matches = find_fuzzy_matches(
+            normalized_term,
+            vocabulary,
+            max_distance=max_distance,
+            max_expansions=MAX_FUZZY_EXPANSIONS,
+            min_term_length=MIN_FUZZY_TERM_LENGTH,
+        )
+
+    _cache_fuzzy_matches(normalized_term, matches)
+    return matches
 
 
 def make_snippet(text: str, query_terms: List[str], max_len: int = 180) -> str:
@@ -144,6 +213,12 @@ def build_weighted_query_terms(query: str) -> Dict[str, float]:
             if term not in weighted_terms and porter_stemmer.stem(term) == stem:
                 weighted_terms[term] = 0.6
 
+        if get_term_postings(stem):
+            continue
+
+        for fuzzy_term, fuzzy_weight in get_fuzzy_term_matches(stem):
+            weighted_terms[fuzzy_term] = max(weighted_terms.get(fuzzy_term, 0.0), fuzzy_weight)
+
     return weighted_terms
 
 
@@ -183,7 +258,6 @@ def search_query(query: str, top_k: int = 10) -> List[Tuple[dict, float]]:
                 page = pages.get(doc_id)
                 if page:
                     results.append((page, scores[doc_id]))
-                    _cache_page(doc_id, page)
 
     _cache_search_result(cache_key, results)
     return results
@@ -316,14 +390,6 @@ def _evaluate_boolean_tokens(tokens: List[str]) -> Set[ObjectId]:
     return stack[0]
 
 
-def get_documents_for_phrase(phrase: str) -> Set[ObjectId]:
-    if not phrase:
-        return set()
-
-    results = phrase_search(phrase, top_k=1000)
-    return {page.get("_id") for page, _ in results if page.get("_id")}
-
-
 def get_documents_for_query(query_text: str) -> Set[ObjectId]:
     if not query_text:
         return set()
@@ -338,6 +404,9 @@ def get_documents_for_query(query_text: str) -> Set[ObjectId]:
 
 
 def search_with_operators(query: str, top_k: int = 10) -> List[Tuple[dict, float]]:
+    if count_boolean_operators(query) > 2:
+        raise ValueError("Maximum number of boolean operators per search is 2.")
+
     cache_key = f"operators::{query}::{top_k}"
     cached_results = _get_search_result_from_cache(cache_key)
     if cached_results is not None:
@@ -375,51 +444,6 @@ def search_with_operators(query: str, top_k: int = 10) -> List[Tuple[dict, float
                 page = pages.get(doc_id)
                 if page:
                     results.append((page, scores[doc_id]))
-                    _cache_page(doc_id, page)
 
     _cache_search_result(cache_key, results)
     return results
-
-
-def print_results(results: List[Tuple[dict, float]], query_text: str) -> None:
-    query_terms = preprocess(query_text)
-
-    if not results:
-        print("No results found.")
-        return
-
-    for index, (page, score) in enumerate(results, start=1):
-        title = page.get("title", "No Title")
-        url = page.get("url", "")
-        content = page.get("content", "")
-        snippet = make_snippet(content, query_terms)
-
-        print(f"{index}. {title}")
-        print(f"   URL: {url}")
-        print(f"   Score: {score:.6f}")
-        print(f"   Snippet: {snippet}")
-        print()
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Search over MongoDB index with AND/OR/NOT support")
-    parser.add_argument("query", help="Search query text (supports AND/OR/NOT operators, max 2 per query)")
-    parser.add_argument("--phrase", action="store_true", help="Enable exact phrase search")
-    parser.add_argument("--top", type=int, default=10, help="Number of results to show")
-    args = parser.parse_args()
-
-    if parse_query_with_operators(args.query):
-        results = search_with_operators(args.query, top_k=args.top)
-    else:
-        quoted_phrase = extract_quoted_phrase(args.query)
-        if args.phrase or quoted_phrase:
-            phrase_text = quoted_phrase if quoted_phrase else args.query
-            results = phrase_search(phrase_text, top_k=args.top)
-        else:
-            results = search_query(args.query, top_k=args.top)
-
-    print_results(results, args.query)
-
-
-if __name__ == "__main__":
-    main()

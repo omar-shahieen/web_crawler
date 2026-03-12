@@ -5,6 +5,7 @@ This project crawls web pages, builds an inverted index in MongoDB, and supports
 Implemented modules and features:
 
 - `Query Processor` with text preprocessing and stem-aware retrieval.
+- `Fuzzy Matching` for typo-tolerant fallback on misspelled query terms.
 - `Phrase Searching` with strict word-order matching.
 - `Ranker` that combines relevance and popularity.
 
@@ -85,6 +86,19 @@ Example behavior:
 
 - `travel` can match `travel`, `traveler`, `traveling` (with lower degree for variants).
 
+### 1.1) Fuzzy Matching (Typo-tolerant fallback)
+
+Implemented in `domain/fuzzy_matching.py` and integrated from `services/search_service.py`:
+
+- Fuzzy matching is only applied when a normalized query term has no direct postings.
+- Candidate indexed terms are compared with bounded edit distance.
+- Close matches are added with lower weight, so exact matches still dominate ranking.
+- Adjacent transposition typos like `pyhton` can still recover `python`.
+
+Example behavior:
+
+- `pyhton` can still retrieve pages indexed under `python`.
+
 ### 2) Phrase Searching
 
 Implemented in `services/search_service.py`:
@@ -149,10 +163,9 @@ Examples:
 
 Implemented in `services/search_service.py`:
 
-**Three-Level Cache Strategy:**
+**Two-Level Cache Strategy:**
 1. **Search Result Cache** (fastest): Stores complete query results
 2. **Term Postings Cache**: Stores inverted index postings
-3. **Pages Cache**: Stores document data
 
 **Performance:**
 - Cache hit: ~1-5 ms (40x faster than database)
@@ -187,8 +200,6 @@ Check Search Result Cache → HIT? Return (1-5ms)
 Check Term Postings Cache → HIT? Use it
     ↓ MISS
 Fetch from Database → Cache it
-    ↓
-Retrieve Pages (using Page Cache)
     ↓
 Rank Results
     ↓
@@ -251,6 +262,14 @@ for doc, score in results:
 ```
 
 Expected: high overlap in returned results.
+
+### A.1) Fuzzy matching validation
+
+```powershell
+& ".venv\Scripts\python.exe" -c "from services.search_service import search_query; [print(s, d['title']) for d,s in search_query('pyhton', top_k=10)]"
+```
+
+Expected: results still appear for close misspellings of indexed terms.
 
 ### B) Phrase search validation
 

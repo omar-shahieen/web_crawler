@@ -4,6 +4,7 @@ from typing import Callable, List, Tuple
 
 from flask import Flask, jsonify, request
 
+from domain.query_language import count_boolean_operators, extract_query_terms
 from services.search_service import extract_quoted_phrase, make_snippet, parse_query_with_operators, phrase_search, search_query, search_with_operators
 
 
@@ -23,6 +24,7 @@ def _resolve_search_strategy(query_text: str) -> Callable[[str, int], List[Tuple
 
 
 def _serialize_results(results: List[Tuple[dict, float]], query_text: str) -> List[dict]:
+    query_terms = extract_query_terms(query_text)
     serialized: List[dict] = []
     for page, score in results:
         content = page.get("content", "")
@@ -31,7 +33,7 @@ def _serialize_results(results: List[Tuple[dict, float]], query_text: str) -> Li
                 "id": str(page.get("_id", "")),
                 "title": page.get("title", "No Title"),
                 "url": page.get("url", ""),
-                "description": make_snippet(content, query_text.split()),
+                "description": make_snippet(content, query_terms),
                 "score": round(float(score), 6),
             }
         )
@@ -50,6 +52,9 @@ def create_app() -> Flask:
         query_text = request.args.get("q", "", type=str).strip()
         if not query_text:
             return jsonify({"error": "Missing required query parameter 'q'."}), 400
+
+        if count_boolean_operators(query_text) > 2:
+            return jsonify({"error": "Maximum number of boolean operators per search is 2."}), 400
 
         top_k = request.args.get("top", DEFAULT_TOP_K, type=int)
         top_k = max(1, min(top_k, MAX_TOP_K))

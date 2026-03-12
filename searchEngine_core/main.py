@@ -1,4 +1,4 @@
-from cli.commands import SEED_URLS, main
+from cli.commands import main
 
 
 if __name__ == "__main__":

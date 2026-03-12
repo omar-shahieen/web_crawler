@@ -2,7 +2,7 @@ import argparse
 
 from infrastructure.logging_utils import setup_logging
 from presentation.api_app import create_app
-from services.crawl_service import SEED_URLS, crawl_and_index, crawl_web, index_content
+from services.crawl_service import crawl_and_index, crawl_web, index_content
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -16,7 +16,6 @@ def _build_parser() -> argparse.ArgumentParser:
     crawl_parser.add_argument("--delay-max", type=float, default=3.0)
 
     index_parser = subparsers.add_parser("index", help="Run indexing only")
-    index_parser.add_argument("--full", action="store_true", help="Reserved for future full reindex flows")
 
     crawl_index_parser = subparsers.add_parser("crawl-index", help="Run crawler then indexer")
     crawl_index_parser.add_argument("--max-pages", type=int, default=100)
