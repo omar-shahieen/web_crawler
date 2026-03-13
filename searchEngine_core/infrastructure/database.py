@@ -58,7 +58,7 @@ class QueryLog:
         return queries
     
     @staticmethod
-    def _looks_like_spam(q: str) -> bool:
+    def _looks_like_spam( q: str) -> bool:
         if re.search(r"(https?://|www\.)", q):  return True  # URLs
         if re.search(r"(.)\1{4,}", q):          return True  # "aaaaaaa"
         if len(set(q.replace(" ", ""))) < 2:    return True  # "zzzzz"
