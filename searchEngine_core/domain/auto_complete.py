@@ -2,7 +2,6 @@ import pickle
 import re
 from collections import Counter
 from typing import Tuple
-from domain.auto_complete import Trie
 
 
 WEIGHT = {

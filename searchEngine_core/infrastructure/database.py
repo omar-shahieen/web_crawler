@@ -6,16 +6,15 @@ from bson import ObjectId
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.errors import ConnectionFailure
-from dataclasses import  dataclass
-from config import MIN_LENGTH_QUERY , MAX_LENGTH_QUERY , BLOCKED_TERMS
-import re
+from dataclasses import dataclass
+from infrastructure.config import MIN_LENGTH_QUERY, MAX_LENGTH_QUERY, BLOCKED_TERMS
 
 client: MongoClient = MongoClient("mongodb://localhost:27017/")
 db: Any = client["search_engine"]
 Pages: Collection = db["pages"]
 Indeverted_index: Collection = db["inverted_index"]
-Metadata:Collection = db["metadata"]
-QueryLogs:Collection = db["query_logs"]
+Metadata: Collection = db["metadata"]
+QueryLogs: Collection = db["query_logs"]
 
 
 
@@ -28,13 +27,10 @@ except ConnectionFailure as error:
 @dataclass
 class QueryLog:
     query: str
-    count: int
-    
-    
     count: int = 0  # default value for new logs
 
     @staticmethod
-    def log_query( query: str):
+    def log_query(query: str) -> None:
         query = query.lower().strip()
 
         QueryLogs.update_one(
@@ -47,31 +43,40 @@ class QueryLog:
         )
         
     @staticmethod
-    def load_queries():
-        queries = []
+    def load_queries() -> list[tuple[str, int]]:
+        queries: list[tuple[str, int]] = []
 
         cursor = QueryLogs.find({}, {"query": 1, "count": 1})
 
         for doc in cursor:
-            queries.append((doc["query"], doc["count"]))
+            queries.append((doc.get("query", ""), int(doc.get("count", 0))))
 
         return queries
     
     @staticmethod
-    def _looks_like_spam(self, q: str) -> bool:
-        if re.search(r"(https?://|www\.)", q):  return True  # URLs
-        if re.search(r"(.)\1{4,}", q):          return True  # "aaaaaaa"
-        if len(set(q.replace(" ", ""))) < 2:    return True  # "zzzzz"
+    def _looks_like_spam(q: str) -> bool:
+        if re.search(r"(https?://|www\.)", q):
+            return True  # URLs
+        if re.search(r"(.)\1{4,}", q):
+            return True  # "aaaaaaa"
+        if len(set(q.replace(" ", ""))) < 2:
+            return True  # "zzzzz"
         return False
+
     @staticmethod
     def should_log(query: str) -> bool:
         q = query.strip().lower()
 
-        if len(q) < MIN_LENGTH_QUERY:       return False  # "a", "is"
-        if len(q) > MAX_LENGTH_QUERY:       return False  # spam / paste attacks
-        if not re.search(r"[a-z]", q):return False  # "123", "!!!"
-        if q in BLOCKED_TERMS:        return False  # profanity / slurs
-        if QueryLog._looks_like_spam(q):       return False
+        if len(q) < MIN_LENGTH_QUERY:
+            return False  # "a", "is"
+        if len(q) > MAX_LENGTH_QUERY:
+            return False  # spam / paste attacks
+        if not re.search(r"[a-z]", q):
+            return False  # "123", "!!!"
+        if q in BLOCKED_TERMS:
+            return False  # profanity / slurs
+        if QueryLog._looks_like_spam(q):
+            return False
 
         return True
     
