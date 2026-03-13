@@ -8,6 +8,48 @@ BOOLEAN_OPERATOR_PRECEDENCE = {
     "NOT": 3,
 }
 
+COMMON_QUERY_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "by",
+    "for",
+    "from",
+    "how",
+    "in",
+    "is",
+    "it",
+    "of",
+    "on",
+    "or",
+    "that",
+    "the",
+    "to",
+    "was",
+    "were",
+    "what",
+    "when",
+    "where",
+    "who",
+    "why",
+    "with",
+}
+
+
+def _should_keep_query_term(term: str) -> bool:
+    if " " in term:
+        return True
+
+    normalized = term.lower()
+    if len(normalized) < 3:
+        return False
+
+    return normalized not in COMMON_QUERY_STOPWORDS
+
 
 def extract_quoted_phrase(query: str) -> Optional[str]:
     match = re.search(r'"([^"]+)"', query)
@@ -111,6 +153,8 @@ def extract_query_terms(query: str) -> List[str]:
         if not normalized:
             continue
         if normalized.upper() in BOOLEAN_OPERATOR_PRECEDENCE:
+            continue
+        if not _should_keep_query_term(normalized):
             continue
 
         key = normalized.lower()

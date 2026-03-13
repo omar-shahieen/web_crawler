@@ -1,4 +1,48 @@
 const BOOLEAN_OPERATORS = new Set(['AND', 'OR', 'NOT'])
+const COMMON_QUERY_STOPWORDS = new Set([
+  'a',
+  'an',
+  'and',
+  'are',
+  'as',
+  'at',
+  'be',
+  'by',
+  'for',
+  'from',
+  'how',
+  'in',
+  'is',
+  'it',
+  'of',
+  'on',
+  'or',
+  'that',
+  'the',
+  'to',
+  'was',
+  'were',
+  'what',
+  'when',
+  'where',
+  'who',
+  'why',
+  'with',
+])
+
+
+function shouldHighlightTerm(term) {
+  if (term.includes(' ')) {
+    return true
+  }
+
+  const normalized = term.toLowerCase()
+  if (normalized.length < 3) {
+    return false
+  }
+
+  return !COMMON_QUERY_STOPWORDS.has(normalized)
+}
 
 
 function extractHighlightKeywords(query) {
@@ -26,6 +70,9 @@ function extractHighlightKeywords(query) {
       continue
     }
     if (BOOLEAN_OPERATORS.has(normalized.toUpperCase())) {
+      continue
+    }
+    if (!shouldHighlightTerm(normalized)) {
       continue
     }
 

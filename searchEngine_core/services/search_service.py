@@ -194,29 +194,31 @@ def get_term_postings(term: str) -> List[dict]:
 def build_weighted_query_terms(query: str) -> Dict[str, float]:
     weighted_terms: Dict[str, float] = {}
     normalized_terms = preprocess(query)
+    seen_terms: Set[str] = set()
 
     for term in normalized_terms:
+        if not term or term in seen_terms:
+            continue
+
+        seen_terms.add(term)
         weighted_terms[term] = max(weighted_terms.get(term, 0.0), 1.0)
 
-    raw_tokens = re.findall(r"[a-zA-Z]+", query.lower())
-    for raw in raw_tokens:
-        stem = porter_stemmer.stem(raw)
         related_rows = Indeverted_index.find(
-            {"term": {"$regex": f"^{re.escape(stem)}"}},
+            {"term": {"$regex": f"^{re.escape(term)}"}},
             {"term": 1},
         ).limit(25)
 
         for row in related_rows:
-            term = row.get("term")
-            if not term:
+            related_term = row.get("term")
+            if not related_term:
                 continue
-            if term not in weighted_terms and porter_stemmer.stem(term) == stem:
-                weighted_terms[term] = 0.6
+            if related_term not in weighted_terms and porter_stemmer.stem(related_term) == term:
+                weighted_terms[related_term] = 0.6
 
-        if get_term_postings(stem):
+        if get_term_postings(term):
             continue
 
-        for fuzzy_term, fuzzy_weight in get_fuzzy_term_matches(stem):
+        for fuzzy_term, fuzzy_weight in get_fuzzy_term_matches(term):
             weighted_terms[fuzzy_term] = max(weighted_terms.get(fuzzy_term, 0.0), fuzzy_weight)
 
     return weighted_terms
