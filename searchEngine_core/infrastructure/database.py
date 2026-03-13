@@ -7,7 +7,7 @@ from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.errors import ConnectionFailure
 from dataclasses import  dataclass
-from config import MIN_LENGTH_QUERY , MAX_LENGTH_QUERY , BLOCKED_TERMS
+from infrastructure.config import MIN_LENGTH_QUERY , MAX_LENGTH_QUERY , BLOCKED_TERMS
 import re
 
 client: MongoClient = MongoClient("mongodb://localhost:27017/")
@@ -58,7 +58,7 @@ class QueryLog:
         return queries
     
     @staticmethod
-    def _looks_like_spam(self, q: str) -> bool:
+    def _looks_like_spam(q: str) -> bool:
         if re.search(r"(https?://|www\.)", q):  return True  # URLs
         if re.search(r"(.)\1{4,}", q):          return True  # "aaaaaaa"
         if len(set(q.replace(" ", ""))) < 2:    return True  # "zzzzz"

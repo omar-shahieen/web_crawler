@@ -9,6 +9,7 @@ from services.search_service import extract_quoted_phrase, make_snippet, parse_q
 
 from infrastructure.database import QueryLog
 from domain.TrieManager import trie_manager
+
 DEFAULT_TOP_K = 10
 MAX_TOP_K = 50
 
@@ -51,6 +52,7 @@ def create_app() -> Flask:
     @app.get("/api/auto_complete")
     def auto_complete(): 
         query_text = request.args.get("q", "", type=str).strip()
+        print(f"auto complete hit : {query_text}")
         trie = trie_manager.get()
         if trie is None:
             return [] , 200

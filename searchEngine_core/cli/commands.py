@@ -3,6 +3,10 @@ import argparse
 from infrastructure.logging_utils import setup_logging
 from presentation.api_app import create_app
 from services.crawl_service import crawl_and_index, crawl_web, index_content
+from domain.TrieManager import trie_manager
+import threading
+import schedule
+import time
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -53,8 +57,23 @@ def main() -> None:
         )
         return
 
+
+    print("build auto complete trie")
+    trie_manager.rebuild()
+    
+
     if command == "serve":
         create_app().run(host=args.host, port=args.port, debug=args.debug)
         return
-
+    
+    print("indexing......")
     index_content()
+    
+    # schedule.every(24).hours.do(trie_manager.rebuild)   # then refresh periodically
+
+    # def run_scheduler():
+    #     while True:
+    #         schedule.run_pending()
+    #         time.sleep(60)
+
+    # threading.Thread(target=run_scheduler, daemon=True).start()

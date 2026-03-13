@@ -2,8 +2,11 @@ import pickle
 import re
 from collections import Counter
 from typing import Tuple
-from domain.auto_complete import Trie
+from nltk.corpus import stopwords
+import nltk
+nltk.download("stopwords", quiet=True)
 
+stop_words = set(stopwords.words("english"))
 
 WEIGHT = {
     "query":   40,
@@ -63,6 +66,7 @@ class Trie:
             should_delete_child = _delete(node.children[char], word, depth + 1)
             if should_delete_child:
                 del node.children[char]
+                self._node_count -= 1 
                 return len(node.children) == 0 and not node.is_end_of_word
 
             return False
@@ -72,11 +76,13 @@ class Trie:
     
     def autocomplete(self, prefix: str, limit: int = 10) -> list[str]:
         """Return up to `limit` suggestions sorted by priority score."""
+        prefix = prefix.strip().lower()
         node = self._find_node(prefix)
         if not node:
             return []
         results: list[tuple[str, int]] = []
         self._dfs(node, prefix, results)
+
         results.sort(key=lambda x: x[1], reverse=True)
         return [term for term, _ in results[:limit]]
     
@@ -112,6 +118,7 @@ class Trie:
             # Kill this node if it's a low-score leaf
             if node.is_end_of_word and node.score < min_score:
                 node.is_end_of_word = False
+                
                 removed[0] += 1
             # Signal parent to delete us if we're now empty
             return not node.is_end_of_word and len(node.children) == 0
@@ -195,9 +202,18 @@ def _tokenize(text: str) -> list[str]:
     """Lowercase, strip punctuation, split on whitespace."""
     text = text.lower()
     text = re.sub(r"[^a-z0-9\s\-]", "", text)
-    return [t for t in text.split() if len(t) > 1]
+    tokens =  [t for t in text.split() if len(t) > 1]
+    return [w for w in tokens if re.match(r'^[a-z][a-z\-]*[a-z]$', w) and w not in stop_words]
 
 
+def _insert_phrase_prefixes(trie: Trie, phrase: str, weight: int) -> None:
+    """Insert all word-boundary prefixes of a phrase."""
+    words = phrase.strip().lower().split()
+    for i in range(1, len(words) + 1):
+        subphrase = " ".join(words[:i])
+        trie.insert(subphrase, weight=weight)
+        
+        
 def build_autocomplete_trie(pages: list[Tuple[str,str]],queries: list[Tuple[str,int]]) -> Trie:
     """
     Build the autocomplete trie from a list of indexed pages.
@@ -209,11 +225,13 @@ def build_autocomplete_trie(pages: list[Tuple[str,str]],queries: list[Tuple[str,
     """
     trie = Trie()
 
+
     # 1. Past search queries — highest weight
     for query, count in queries:
         q = query.lower().strip()
 
-        trie.insert(q, weight=count * WEIGHT["query"])
+
+        _insert_phrase_prefixes(trie, q, weight=count * WEIGHT["query"])
 
         for token in _tokenize(q):
             trie.insert(token, weight=count * WEIGHT["query"])
@@ -223,14 +241,15 @@ def build_autocomplete_trie(pages: list[Tuple[str,str]],queries: list[Tuple[str,
     
         # 2. Page title
         title =title.lower()
-        trie.insert(title.strip(), weight=WEIGHT["title"])
+        _insert_phrase_prefixes(trie, title, weight=WEIGHT["title"])
+
         for token in _tokenize(title):
             trie.insert(token, weight=WEIGHT["title"])
  
         # 3. Body text — lowest weight, most noise
         tokens = Counter(_tokenize(content)).most_common(200)
 
-        for token, freq in tokens.items():
+        for token, freq in tokens:
             trie.insert(token, weight=freq * WEIGHT["body"])
 
  
